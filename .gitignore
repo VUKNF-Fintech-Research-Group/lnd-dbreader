@@ -1,0 +1,12 @@
+# Docker compose file
+docker-compose.yml
+
+# Old files
+OLD/*
+lnd/lnd_OLD/*
+
+# Mysql Internal DB files
+mysql/data/*
+
+# LND Downloaded Data
+lnd/lnd/*

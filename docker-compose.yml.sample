@@ -1,0 +1,120 @@
+services:
+
+  # LND Daemon
+  lnd-dbreader-lnd:
+    container_name: lnd-dbreader-lnd
+    image: lightninglabs/lnd:v0.18.2-beta
+    environment:
+      - RPCUSER=root
+      - RPCPASS=root
+      - BACKEND=neutrino
+      - NETWORK=mainnet
+
+      # Neutrino peers (https://bitnodes.io/nodes/?page=1&q=COMPACT)
+      - NEUTRINO_CONNECT=185.70.43.194,74.83.197.138,76.109.53.20,79.156.138.107
+      - FEE_URL=https://mempool.space/api/v1/fees/recommended
+      - LNDHOST=lnd-dbreader-lnd
+    volumes:
+      - ./lnd/lnd:/root/.lnd
+      - ./lnd/start-lnd.sh:/start-lnd.sh:ro
+    entrypoint: ["/start-lnd.sh"]
+    # entrypoint: ["sleep", "infinity"]     # Development
+    healthcheck:
+      test: ["CMD", "lncli", "--rpcserver=localhost:10009", "--macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon", "listpeers", "|", "grep", "-q", '"pub_key"']
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    restart: unless-stopped
+
+
+
+  # LND Database Reader
+  lnd-dbreader-dbreader:
+    container_name: lnd-dbreader-dbreader
+    image: lnd-dbreader-dbreader
+    build: ./dbreader
+    environment:
+      MYSQL_HOST: lnd-dbreader-mysql
+      MYSQL_DATABASE: lnd_data
+      MYSQL_USER: lnd_data
+      MYSQL_PASSWORD: lnd_data
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./lnd/lnd/data/graph/mainnet/:/data
+      # - ./dbreader:/app       # Development
+    restart: unless-stopped
+
+
+
+  # Database to store the channel/node announcement messages
+  lnd-dbreader-mysql:
+    container_name: lnd-dbreader-mysql
+    image: mysql:8.4.0
+    user: 1000:1000
+    read_only: true
+    tmpfs:
+      - /run/mysqld:uid=999,gid=999
+      - /tmp
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: lnd_data
+      MYSQL_USER: lnd_data
+      MYSQL_PASSWORD: lnd_data
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+      - ./mysql/data:/var/lib/mysql
+    restart: unless-stopped
+
+
+
+  # # Database browser to view the results
+  # lnd-dbreader-dbgate:
+  #   container_name: lnd-dbreader-dbgate
+  #   image: dbgate/dbgate:5.3.1-alpine
+  #   read_only: false
+  #   environment:
+  #     WEB_ROOT: /
+
+  #     LOGINS: admin
+  #     LOGIN_PASSWORD_admin: admin
+
+  #     CONNECTIONS: con4
+  #     LABEL_con4: LND DB Reader
+  #     SERVER_con4: lnd-dbreader-mysql
+  #     USER_con4: root
+  #     PASSWORD_con4: root
+  #     PORT_con4: 3306
+  #     ENGINE_con4: mysql@dbgate-plugin-mysql
+
+  #   volumes:
+  #     - /etc/localtime:/etc/localtime:ro
+  #   ports:
+  #     - "8092:3000"
+  #   restart: unless-stopped
+
+
+
+  # # lnd-dbreader-zabbix:
+  #   container_name: lnd-dbreader-zabbix
+  #   read_only: true
+  #   build:
+  #     context: ./zabbix
+  #     dockerfile: Dockerfile
+  #   environment:
+  #     ZABBIX_SERVER: <Zabbix Server IP>
+  #     ZABBIX_PORT: 10051
+  #     MYSQL_HOST: lnd-dbreader-mysql
+  #     MYSQL_USER: lnd_data
+  #     MYSQL_PASSWORD: lnd_data
+  #     MYSQL_DATABASE: lnd_data
+  #     TABLES_TO_CHECK: channel_announcements,node_announcements
+  #   restart: unless-stopped
+
+

@@ -3,15 +3,12 @@ services:
   # LND Daemon
   lnd-dbreader-lnd:
     container_name: lnd-dbreader-lnd
-    image: lightninglabs/lnd:v0.18.2-beta
+    image: lightninglabs/lnd:v0.19.2-beta.rc2
     environment:
-      - RPCUSER=root
-      - RPCPASS=root
-      - BACKEND=neutrino
       - NETWORK=mainnet
 
       # Neutrino peers (https://bitnodes.io/nodes/?page=1&q=COMPACT)
-      - NEUTRINO_CONNECT=185.70.43.194,74.83.197.138,76.109.53.20,79.156.138.107
+      - NEUTRINO_CONNECT=185.70.43.194,176.9.17.121,167.235.9.82,176.9.150.253
       - FEE_URL=https://mempool.space/api/v1/fees/recommended
       - LNDHOST=lnd-dbreader-lnd
     volumes:
@@ -20,11 +17,11 @@ services:
     entrypoint: ["/start-lnd.sh"]
     # entrypoint: ["sleep", "infinity"]     # Development
     healthcheck:
-      test: ["CMD", "lncli", "--rpcserver=localhost:10009", "--macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon", "listpeers", "|", "grep", "-q", '"pub_key"']
-      interval: 1m30s
+      test: ["CMD-SHELL", "lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon getinfo | grep -q '\"synced_to_chain\": true' && lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon listpeers | grep -q '\"pub_key\"'"]
+      interval: 5m
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 5m
     logging:
       driver: "json-file"
       options:

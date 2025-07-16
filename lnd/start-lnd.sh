@@ -47,63 +47,24 @@ HOSTNAME=$(hostname)
 NEUTRINO_CONNECT=${NEUTRINO_CONNECT:-"faucet.lightning.community,btcd-mainnet.lightning.computer"}
 FEE_URL=${FEE_URL:-"https://nodes.lightning.computer/fees/v1/btc"}
 
-# CAUTION: DO NOT use the --noseedbackup for production/mainnet setups, ever!
-# Also, setting --rpclisten to $HOSTNAME will cause it to listen on an IP
-# address that is reachable on the internal network. If you do this outside of
-# Docker, this might be a security concern!
 
-if [ "$BACKEND" == "bitcoind" ]; then
-    exec lnd \
-        --noseedbackup \
-        "--$CHAIN.active" \
-        "--$CHAIN.$NETWORK" \
-        "--$CHAIN.node"="$BACKEND" \
-        "--$BACKEND.rpchost"="$RPCHOST" \
-        "--$BACKEND.rpcuser"="$RPCUSER" \
-        "--$BACKEND.rpcpass"="$RPCPASS" \
-        "--$BACKEND.zmqpubrawblock"="tcp://$RPCHOST:28332" \
-        "--$BACKEND.zmqpubrawtx"="tcp://$RPCHOST:28333" \
-        "--rpclisten=$HOSTNAME:10009" \
-        "--rpclisten=localhost:10009" \
-        --tlsextradomain="$LNDHOST" \
-        --debuglevel="$DEBUG" \
-        "$@"
-elif [ "$BACKEND" == "btcd" ]; then
-    exec lnd \
-        --noseedbackup \
-        "--$CHAIN.active" \
-        "--$CHAIN.$NETWORK" \
-        "--$CHAIN.node"="$BACKEND" \
-        "--$BACKEND.rpccert"="$RPCCRTPATH" \
-        "--$BACKEND.rpchost"="$RPCHOST" \
-        "--$BACKEND.rpcuser"="$RPCUSER" \
-        "--$BACKEND.rpcpass"="$RPCPASS" \
-        "--rpclisten=$HOSTNAME:10009" \
-        "--rpclisten=localhost:10009" \
-        --tlsextradomain="$LNDHOST" \
-        --debuglevel="$DEBUG" \
-        "$@"
-elif [ "$BACKEND" == "neutrino" ]; then
-    # Split the comma-separated list of Neutrino nodes into separate --neutrino.connect flags
-    NEUTRINO_CONNECT_FLAGS=()
-    IFS=',' read -ra ADDR <<< "$NEUTRINO_CONNECT"
-    for NODE in "${ADDR[@]}"; do
-        NEUTRINO_CONNECT_FLAGS+=(--neutrino.connect="$NODE")
-    done
 
-    exec lnd \
-        --noseedbackup \
-        "--$CHAIN.active" \
-        "--$CHAIN.$NETWORK" \
-        "--$CHAIN.node=neutrino" \
-        "${NEUTRINO_CONNECT_FLAGS[@]}" \
-        "--fee.url=$FEE_URL" \
-        "--rpclisten=$HOSTNAME:10009" \
-        "--rpclisten=localhost:10009" \
-        --tlsextradomain="$LNDHOST" \
-        --debuglevel="$DEBUG" \
-        "$@"
-else
-    echo "Unknown backend: $BACKEND"
-    exit 1
-fi
+# Split the comma-separated list of Neutrino nodes into separate --neutrino.connect flags
+NEUTRINO_CONNECT_FLAGS=()
+IFS=',' read -ra ADDR <<< "$NEUTRINO_CONNECT"
+for NODE in "${ADDR[@]}"; do
+    NEUTRINO_CONNECT_FLAGS+=(--neutrino.connect="$NODE")
+done
+
+exec lnd \
+    --noseedbackup \
+    "--$CHAIN.active" \
+    "--$CHAIN.$NETWORK" \
+    "--$CHAIN.node=neutrino" \
+    "${NEUTRINO_CONNECT_FLAGS[@]}" \
+    "--fee.url=$FEE_URL" \
+    "--rpclisten=$HOSTNAME:10009" \
+    "--rpclisten=localhost:10009" \
+    --tlsextradomain="$LNDHOST" \
+    --debuglevel="$DEBUG" \
+    "$@"

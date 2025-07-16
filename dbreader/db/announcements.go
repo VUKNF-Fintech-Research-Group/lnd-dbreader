@@ -1,295 +1,327 @@
+/*
+Package db provides database operations for importing LND graph data into MySQL.
+
+This package handles the import of channel announcements, node announcements,
+and node addresses from LND v0.19.1 graph database into MySQL for analysis
+and monitoring purposes.
+*/
 package db
 
 import (
-    "database/sql"
-    "encoding/hex"
-    "encoding/json"
-    "fmt"
-    "net"
-    "strconv"
-    "strings"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"strconv"
+	"strings"
 
-    "github.com/btcsuite/btcwallet/walletdb"
-    "github.com/lightningnetwork/lnd/lnwire"
-    "lnd-dbreader/models"
+	"github.com/lightningnetwork/lnd/lnwire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"lnd-dbreader/models"
 )
 
-const batchSize = 5000
+const (
+	// batchSize defines the number of records to process in a single database transaction
+	batchSize = 5000
+)
 
+// SendChannelAnnouncements imports all channel announcements from the LND graph to MySQL
 func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
-    fmt.Println("Sending Channel Announcements to MySQL:")
+	log.Printf("Importing channel announcements to MySQL")
 
-    tx, err := db.Begin()
-    if err != nil {
-        return fmt.Errorf("failed to begin transaction: %v", err)
-    }
-    defer func() {
-        if err != nil {
-            tx.Rollback()
-        } else {
-            tx.Commit()
-        }
-    }()
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
+		}
+	}()
 
-    var values []interface{}
-    var placeholders []string
-    count := 0
+	var values []interface{}
+	var placeholders []string
+	count := 0
 
-    err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo, c1, c2 *models.ChannelEdgePolicy) error {
-        chanAnn := models.CustomChannelAnnouncement{
-            ChannelAnnouncement: lnwire.ChannelAnnouncement{
-                ShortChannelID:  lnwire.NewShortChanIDFromInt(edgeInfo.ChannelID),
-                NodeID1:         edgeInfo.NodeKey1Bytes,
-                NodeID2:         edgeInfo.NodeKey2Bytes,
-                BitcoinKey1:     edgeInfo.BitcoinKey1Bytes,
-                BitcoinKey2:     edgeInfo.BitcoinKey2Bytes,
-                ExtraOpaqueData: edgeInfo.ExtraOpaqueData,
-            },
-        }
+	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo, c1, c2 *models.ChannelEdgePolicy) error {
+		// Create channel announcement wrapper
+		chanAnn := models.CustomChannelAnnouncement{
+			ChannelAnnouncement1: &lnwire.ChannelAnnouncement1{
+				ChainHash:       edgeInfo.ChainHash,
+				ShortChannelID:  lnwire.NewShortChanIDFromInt(edgeInfo.ChannelID),
+				NodeID1:         edgeInfo.NodeKey1Bytes,
+				NodeID2:         edgeInfo.NodeKey2Bytes,
+				BitcoinKey1:     edgeInfo.BitcoinKey1Bytes,
+				BitcoinKey2:     edgeInfo.BitcoinKey2Bytes,
+				ExtraOpaqueData: edgeInfo.ExtraOpaqueData,
+			},
+		}
 
-        jsonBytes, err := json.Marshal(chanAnn)
-        if err != nil {
-            return fmt.Errorf("failed to marshal channel announcement to JSON: %v", err)
-        }
+		// Serialize to JSON
+		jsonBytes, err := json.Marshal(chanAnn)
+		if err != nil {
+			return fmt.Errorf("failed to marshal channel announcement to JSON: %w", err)
+		}
 
-        shortChannelIDInt := chanAnn.ShortChannelID.ToUint64()
+		// Extract data for database insertion
+		shortChannelIDInt := chanAnn.SCID().ToUint64()
+		node1Bytes := chanAnn.Node1KeyBytes()
+		node2Bytes := chanAnn.Node2KeyBytes()
 
-        values = append(values,
-            shortChannelIDInt,
-            hex.EncodeToString(chanAnn.NodeID1[:]),
-            hex.EncodeToString(chanAnn.NodeID2[:]),
-            hex.EncodeToString(chanAnn.BitcoinKey1[:]),
-            hex.EncodeToString(chanAnn.BitcoinKey2[:]),
-            hex.EncodeToString(chanAnn.ExtraOpaqueData),
-            string(jsonBytes),
-        )
-        placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
+		values = append(values,
+			shortChannelIDInt,
+			hex.EncodeToString(node1Bytes[:]),
+			hex.EncodeToString(node2Bytes[:]),
+			hex.EncodeToString(edgeInfo.BitcoinKey1Bytes[:]),
+			hex.EncodeToString(edgeInfo.BitcoinKey2Bytes[:]),
+			hex.EncodeToString(edgeInfo.ExtraOpaqueData),
+			string(jsonBytes),
+		)
+		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?, ?, NOW(), NOW())")
 
-        count++
+		count++
 
-        if count%batchSize == 0 {
-            if err := executeBatchChannelAnnouncements(tx, placeholders, values); err != nil {
-                return err
-            }
-            values = nil
-            placeholders = nil
-        }
+		// Process batch when limit reached
+		if count%batchSize == 0 {
+			if err := executeBatchChannelAnnouncements(tx, placeholders, values); err != nil {
+				return err
+			}
+			values = nil
+			placeholders = nil
+		}
 
-        return nil
-    })
+		return nil
+	})
 
-    if err != nil {
-        return err
-    }
+	if err != nil {
+		return fmt.Errorf("failed to iterate channels: %w", err)
+	}
 
-    if len(values) > 0 {
-        if err := executeBatchChannelAnnouncements(tx, placeholders, values); err != nil {
-            return err
-        }
-    }
+	// Process remaining records
+	if len(values) > 0 {
+		if err := executeBatchChannelAnnouncements(tx, placeholders, values); err != nil {
+			return err
+		}
+	}
 
-    fmt.Printf("Processed %d channel announcements\n", count)
-    return nil
+	log.Printf("Successfully imported %d channel announcements", count)
+	return nil
 }
 
+// executeBatchChannelAnnouncements executes a batch insert for channel announcements
 func executeBatchChannelAnnouncements(tx *sql.Tx, placeholders []string, values []interface{}) error {
-    query := fmt.Sprintf(`
-        INSERT INTO channel_announcements 
-        (short_channel_id, node_id_1, node_id_2, bitcoin_key_1, bitcoin_key_2, extra_opaque_data, json_data, first_seen, last_seen)
-        VALUES %s
-        ON DUPLICATE KEY UPDATE
-            json_data = VALUES(json_data),
-            last_seen = VALUES(last_seen)
-    `, strings.Join(placeholders, ","))
+	query := `INSERT INTO channel_announcements 
+		(short_channel_id, node_id_1, node_id_2, bitcoin_key_1, bitcoin_key_2, extra_opaque_data, json_data, first_seen, last_seen) 
+		VALUES ` + strings.Join(placeholders, ",") + ` 
+		ON DUPLICATE KEY UPDATE 
+		node_id_1 = VALUES(node_id_1),
+		node_id_2 = VALUES(node_id_2), 
+		bitcoin_key_1 = VALUES(bitcoin_key_1),
+		bitcoin_key_2 = VALUES(bitcoin_key_2),
+		extra_opaque_data = VALUES(extra_opaque_data),
+		json_data = VALUES(json_data),
+		last_seen = NOW()`
 
-    _, err := tx.Exec(query, values...)
-    if err != nil {
-        return fmt.Errorf("failed to execute batch insert: %v", err)
-    }
+	_, err := tx.Exec(query, values...)
+	if err != nil {
+		return fmt.Errorf("failed to execute batch insert: %w", err)
+	}
 
-    return nil
+	return nil
 }
 
+// SendNodeAnnouncements imports all node announcements from the LND graph to MySQL
 func SendNodeAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
-    fmt.Println("Sending Node Announcements to MySQL:")
+	log.Printf("Importing node announcements to MySQL")
 
-    tx, err := db.Begin()
-    if err != nil {
-        return fmt.Errorf("failed to begin transaction: %v", err)
-    }
-    defer func() {
-        if err != nil {
-            tx.Rollback()
-        } else {
-            tx.Commit()
-        }
-    }()
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
+		}
+	}()
 
-    var values []interface{}
-    var placeholders []string
-    count := 0
+	var values []interface{}
+	var placeholders []string
+	count := 0
 
-    err = graph.ForEachNode(func(dbTx walletdb.ReadTx, node *models.LightningNode) error {
-        // Ensure not to hold onto dbTx or open new transactions within the callback
+	err = graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
+		node := nodeTx.Node()
+		
+		// Create node alias
+		alias, err := lnwire.NewNodeAlias(node.Alias)
+		if err != nil {
+			return fmt.Errorf("failed to create node alias: %w", err)
+		}
 
-        alias, err := lnwire.NewNodeAlias(node.Alias)
-        if err != nil {
-            return fmt.Errorf("failed to create node alias: %v", err)
-        }
+		// Create node announcement wrapper
+		nodeAnn := models.CustomNodeAnnouncement{
+			NodeAnnouncement: lnwire.NodeAnnouncement{
+				Features:        lnwire.NewRawFeatureVector(),
+				Timestamp:       uint32(node.LastUpdate.Unix()),
+				NodeID:          node.PubKeyBytes,
+				RGBColor:        node.Color,
+				Alias:           alias,
+				Addresses:       node.Addresses,
+				ExtraOpaqueData: node.ExtraOpaqueData,
+			},
+		}
 
-        nodeAnn := models.CustomNodeAnnouncement{
-            NodeAnnouncement: lnwire.NodeAnnouncement{
-                Features:        lnwire.NewRawFeatureVector(),
-                Timestamp:       uint32(node.LastUpdate.Unix()),
-                NodeID:          node.PubKeyBytes,
-                RGBColor:        node.Color,
-                Alias:           alias,
-                Addresses:       node.Addresses,
-                ExtraOpaqueData: node.ExtraOpaqueData,
-            },
-        }
+		// Serialize to JSON
+		jsonBytes, err := json.Marshal(nodeAnn)
+		if err != nil {
+			return fmt.Errorf("failed to marshal node announcement to JSON: %w", err)
+		}
 
-        jsonBytes, err := json.Marshal(nodeAnn)
-        if err != nil {
-            return fmt.Errorf("failed to marshal node announcement to JSON: %v", err)
-        }
+		values = append(values,
+			hex.EncodeToString(node.PubKeyBytes[:]),
+			alias.String(),
+			fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B),
+			string(jsonBytes),
+		)
+		placeholders = append(placeholders, "(?, ?, ?, ?, NOW(), NOW())")
 
-        values = append(values,
-            hex.EncodeToString(nodeAnn.NodeID[:]),
-            nodeAnn.Alias.String(),
-            fmt.Sprintf("#%02x%02x%02x", nodeAnn.RGBColor.R, nodeAnn.RGBColor.G, nodeAnn.RGBColor.B),
-            string(jsonBytes),
-        )
-        placeholders = append(placeholders, "(?, ?, ?, ?, NOW(), NOW())")
+		count++
 
-        count++
+		// Process batch when limit reached
+		if count%batchSize == 0 {
+			if err := executeBatchNodeAnnouncements(tx, placeholders, values); err != nil {
+				return err
+			}
+			values = nil
+			placeholders = nil
+		}
 
-        if len(placeholders) >= batchSize {
-            if err := executeBatchNodeAnnouncements(tx, placeholders, values); err != nil {
-                return err
-            }
-            values = nil
-            placeholders = nil
-        }
+		return nil
+	})
 
-        return nil
-    })
+	if err != nil {
+		return fmt.Errorf("failed to iterate nodes: %w", err)
+	}
 
-    if err != nil {
-        return err
-    }
+	// Process remaining records
+	if len(values) > 0 {
+		if err := executeBatchNodeAnnouncements(tx, placeholders, values); err != nil {
+			return err
+		}
+	}
 
-    if len(values) > 0 {
-        if err := executeBatchNodeAnnouncements(tx, placeholders, values); err != nil {
-            return err
-        }
-    }
-
-    fmt.Printf("Processed %d node announcements\n", count)
-    return nil
+	log.Printf("Successfully imported %d node announcements", count)
+	return nil
 }
 
+// executeBatchNodeAnnouncements executes a batch insert for node announcements
 func executeBatchNodeAnnouncements(tx *sql.Tx, placeholders []string, values []interface{}) error {
-    query := fmt.Sprintf(`
-        INSERT INTO node_announcements 
-        (node_id, alias, rgb_color, json_data, first_seen, last_seen)
-        VALUES %s
-        ON DUPLICATE KEY UPDATE
-            alias = VALUES(alias),
-            rgb_color = VALUES(rgb_color),
-            json_data = VALUES(json_data),
-            last_seen = VALUES(last_seen)
-    `, strings.Join(placeholders, ","))
+	query := `INSERT INTO node_announcements 
+		(node_id, alias, rgb_color, json_data, first_seen, last_seen) 
+		VALUES ` + strings.Join(placeholders, ",") + ` 
+		ON DUPLICATE KEY UPDATE 
+		alias = VALUES(alias),
+		rgb_color = VALUES(rgb_color),
+		json_data = VALUES(json_data),
+		last_seen = NOW()`
 
-    _, err := tx.Exec(query, values...)
-    if err != nil {
-        return fmt.Errorf("failed to execute batch insert: %v", err)
-    }
+	_, err := tx.Exec(query, values...)
+	if err != nil {
+		return fmt.Errorf("failed to execute batch insert: %w", err)
+	}
 
-    return nil
+	return nil
 }
 
+// SendNodeAddresses imports all node addresses from the LND graph to MySQL
 func SendNodeAddresses(graph models.ChannelGraph, db *sql.DB) error {
-    fmt.Println("Sending Node Addresses to MySQL:")
+	log.Printf("Importing node addresses to MySQL")
 
-    tx, err := db.Begin()
-    if err != nil {
-        return fmt.Errorf("failed to begin transaction: %v", err)
-    }
-    defer func() {
-        if err != nil {
-            tx.Rollback()
-        } else {
-            tx.Commit()
-        }
-    }()
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			tx.Commit()
+		}
+	}()
 
-    var values []interface{}
-    var placeholders []string
-    count := 0
+	var values []interface{}
+	var placeholders []string
+	count := 0
 
-    err = graph.ForEachNode(func(dbTx walletdb.ReadTx, node *models.LightningNode) error {
-        // Ensure not to hold onto dbTx or open new transactions within the callback
+	err = graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
+		node := nodeTx.Node()
 
-        for _, addr := range node.Addresses {
-            host, port, err := net.SplitHostPort(addr.String())
-            if err != nil {
-                return fmt.Errorf("failed to parse address: %v", err)
-            }
+		for _, addr := range node.Addresses {
+			host, portStr, err := net.SplitHostPort(addr.String())
+			if err != nil {
+				// Handle addresses without port
+				host = addr.String()
+				portStr = "0"
+			}
 
-            portUint, err := strconv.ParseUint(port, 10, 16)
-            if err != nil {
-                return fmt.Errorf("failed to parse port: %v", err)
-            }
+			port, _ := strconv.ParseUint(portStr, 10, 32)
 
-            values = append(values,
-                hex.EncodeToString(node.PubKeyBytes[:]),
-                host,
-                portUint,
-            )
-            placeholders = append(placeholders, "(?, ?, ?, NOW(), NOW())")
+			values = append(values,
+				hex.EncodeToString(node.PubKeyBytes[:]),
+				host,
+				uint32(port),
+			)
+			placeholders = append(placeholders, "(?, ?, ?, NOW(), NOW())")
 
-            count++
+			count++
 
-            if len(placeholders) >= batchSize {
-                if err := executeBatchNodeAddresses(tx, placeholders, values); err != nil {
-                    return err
-                }
-                values = nil
-                placeholders = nil
-            }
-        }
+			// Process batch when limit reached
+			if count%batchSize == 0 {
+				if err := executeBatchNodeAddresses(tx, placeholders, values); err != nil {
+					return err
+				}
+				values = nil
+				placeholders = nil
+			}
+		}
 
-        return nil
-    })
+		return nil
+	})
 
-    if err != nil {
-        return err
-    }
+	if err != nil {
+		return fmt.Errorf("failed to iterate node addresses: %w", err)
+	}
 
-    if len(values) > 0 {
-        if err := executeBatchNodeAddresses(tx, placeholders, values); err != nil {
-            return err
-        }
-    }
+	// Process remaining records
+	if len(values) > 0 {
+		if err := executeBatchNodeAddresses(tx, placeholders, values); err != nil {
+			return err
+		}
+	}
 
-    fmt.Printf("Processed %d node addresses\n", count)
-    return nil
+	log.Printf("Successfully imported %d node addresses", count)
+	return nil
 }
 
+// executeBatchNodeAddresses executes a batch insert for node addresses
 func executeBatchNodeAddresses(tx *sql.Tx, placeholders []string, values []interface{}) error {
-    query := fmt.Sprintf(`
-        INSERT INTO node_addresses 
-        (node_id, address, port, first_seen, last_seen)
-        VALUES %s
-        ON DUPLICATE KEY UPDATE
-            last_seen = VALUES(last_seen)
-    `, strings.Join(placeholders, ","))
+	query := `INSERT INTO node_addresses 
+		(node_id, address, port, first_seen, last_seen) 
+		VALUES ` + strings.Join(placeholders, ",") + ` 
+		ON DUPLICATE KEY UPDATE 
+		address = VALUES(address),
+		port = VALUES(port),
+		last_seen = NOW()`
 
-    _, err := tx.Exec(query, values...)
-    if err != nil {
-        return fmt.Errorf("failed to execute batch insert: %v", err)
-    }
+	_, err := tx.Exec(query, values...)
+	if err != nil {
+		return fmt.Errorf("failed to execute batch insert: %w", err)
+	}
 
-    return nil
+	return nil
 }

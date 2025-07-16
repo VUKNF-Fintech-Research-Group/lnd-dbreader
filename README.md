@@ -69,15 +69,17 @@ sudo docker-compose logs -f
 
 ## ⚙️ Configuration
 
+Below environment variables for lnd-dbreader-dbreader service configuration:
+
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MYSQL_HOST` | `lnd-dbreader-mysql` | MySQL server hostname |
 | `MYSQL_PORT` | `3306` | MySQL server port |
-| `MYSQL_USER` | `lnd-dbreader` | MySQL username |
-| `MYSQL_PASSWORD` | `lnd-dbreader` | MySQL password |
-| `MYSQL_DATABASE` | `lnd-dbreader` | MySQL database name |
+| `MYSQL_USER` | `lnd_data` | MySQL username |
+| `MYSQL_PASSWORD` | `lnd_data` | MySQL password |
+| `MYSQL_DATABASE` | `lnd_data` | MySQL database name |
 | `LND_DB_PATH` | `/data/channel.db` | Path to LND channel database |
 | `SYNC_INTERVAL_MINUTES` | `30` | Sync interval in minutes |
 

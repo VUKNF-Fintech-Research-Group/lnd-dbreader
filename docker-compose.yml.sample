@@ -42,7 +42,7 @@ services:
       MYSQL_USER: lnd_data
       MYSQL_PASSWORD: lnd_data
     volumes:
-      - /etc/localtime:/etc/localtime:ro
+      # - /etc/localtime:/etc/localtime:ro
       - ./lnd/lnd/data/graph/mainnet/:/data
       # - ./dbreader:/app       # Development
     restart: unless-stopped
@@ -64,37 +64,37 @@ services:
       MYSQL_USER: lnd_data
       MYSQL_PASSWORD: lnd_data
     volumes:
-      - /etc/localtime:/etc/localtime:ro
+      # - /etc/localtime:/etc/localtime:ro
       - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
       - ./mysql/data:/var/lib/mysql
     restart: unless-stopped
 
 
 
-  # # Database browser to view the results
-  # lnd-dbreader-dbgate:
-  #   container_name: lnd-dbreader-dbgate
-  #   image: dbgate/dbgate:5.3.1-alpine
-  #   read_only: false
-  #   environment:
-  #     WEB_ROOT: /
+  # Database browser to view the results
+  lnd-dbreader-dbgate:
+    container_name: lnd-dbreader-dbgate
+    image: dbgate/dbgate:6.1.6-alpine
+    read_only: false
+    environment:
+      WEB_ROOT: /
 
-  #     LOGINS: admin
-  #     LOGIN_PASSWORD_admin: admin
+      LOGINS: admin
+      LOGIN_PASSWORD_admin: admin
 
-  #     CONNECTIONS: con4
-  #     LABEL_con4: LND DB Reader
-  #     SERVER_con4: lnd-dbreader-mysql
-  #     USER_con4: root
-  #     PASSWORD_con4: root
-  #     PORT_con4: 3306
-  #     ENGINE_con4: mysql@dbgate-plugin-mysql
+      CONNECTIONS: con1
+      LABEL_con1: LND DB Reader
+      SERVER_con1: lnd-dbreader-mysql
+      USER_con1: root
+      PASSWORD_con1: root
+      PORT_con1: 3306
+      ENGINE_con1: mysql@dbgate-plugin-mysql
 
-  #   volumes:
-  #     - /etc/localtime:/etc/localtime:ro
-  #   ports:
-  #     - "8092:3000"
-  #   restart: unless-stopped
+    # volumes:
+    #   - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "8092:3000"
+    restart: unless-stopped
 
 
 

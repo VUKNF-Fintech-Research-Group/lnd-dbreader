@@ -58,7 +58,7 @@ cp docker-compose.yml.sample docker-compose.yml
 
 ```bash
 # Start all services
-sudo docker-compose up --build -d
+./runUpdateThisStack.sh
 
 # View logs
 sudo docker-compose logs -f

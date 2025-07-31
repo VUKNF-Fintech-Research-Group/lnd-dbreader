@@ -1,16 +1,11 @@
 # Docker compose file
 docker-compose.yml
 
-# Old files
-OLD
-lnd/lnd_OLD/*
+# Raw data
+DATA
 
 # Mysql Internal DB files
 mysql/data/*
-mysql_bak
 
 # LND Downloaded Data
-lnd/lnd/*
-
-# Sender
-sender
+lnd/lnd

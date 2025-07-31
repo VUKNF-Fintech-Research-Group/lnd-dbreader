@@ -1,5 +1,19 @@
 services:
 
+  # Endpoint proxy to access the services
+  lnd-dbreader-endpoint:
+    container_name: lnd-dbreader-endpoint
+    image: caddy:2-alpine
+    read_only: true
+    volumes:
+      - ./endpoint/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./DATA:/srv
+    ports:
+      - "80:80"
+    restart: unless-stopped
+
+
+
   # LND Daemon
   lnd-dbreader-lnd:
     container_name: lnd-dbreader-lnd
@@ -15,7 +29,6 @@ services:
       - ./lnd/lnd:/root/.lnd
       - ./lnd/start-lnd.sh:/start-lnd.sh:ro
     entrypoint: ["/start-lnd.sh"]
-    # entrypoint: ["sleep", "infinity"]     # Development
     healthcheck:
       test: ["CMD-SHELL", "lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon getinfo | grep -q '\"synced_to_chain\": true' && lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon listpeers | grep -q '\"pub_key\"'"]
       interval: 5m
@@ -42,14 +55,13 @@ services:
       MYSQL_USER: lnd_data
       MYSQL_PASSWORD: lnd_data
     volumes:
-      # - /etc/localtime:/etc/localtime:ro
+      # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
       - ./lnd/lnd/data/graph/mainnet/:/data
-      # - ./dbreader:/app       # Development
     restart: unless-stopped
 
 
 
-  # Database to store the channel/node announcement messages
+  # Database to store collected data
   lnd-dbreader-mysql:
     container_name: lnd-dbreader-mysql
     image: mysql:8.4.0
@@ -64,7 +76,7 @@ services:
       MYSQL_USER: lnd_data
       MYSQL_PASSWORD: lnd_data
     volumes:
-      # - /etc/localtime:/etc/localtime:ro
+      # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
       - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
       - ./mysql/data:/var/lib/mysql
     restart: unless-stopped
@@ -77,10 +89,11 @@ services:
     image: dbgate/dbgate:6.1.6-alpine
     read_only: false
     environment:
-      WEB_ROOT: /
+      WEB_ROOT: /dbgate
 
-      LOGINS: admin
-      LOGIN_PASSWORD_admin: admin
+      ### OPTIONAL: Add authentication to the database browser
+      # LOGINS: admin
+      # LOGIN_PASSWORD_admin: admin
 
       CONNECTIONS: con1
       LABEL_con1: LND DB Reader
@@ -89,15 +102,24 @@ services:
       PASSWORD_con1: root
       PORT_con1: 3306
       ENGINE_con1: mysql@dbgate-plugin-mysql
-
-    # volumes:
-    #   - /etc/localtime:/etc/localtime:ro
-    ports:
-      - "8092:3000"
     restart: unless-stopped
 
 
 
+  # Data Exporter for the BLNSTATS server
+  lnd-dbreader-exporter:
+    container_name: lnd-dbreader-exporter
+    image: lnd-dbreader-exporter
+    build: ./exporter
+    read_only: true
+    volumes:
+      # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
+      - ./DATA:/DATA
+    restart: unless-stopped
+
+
+
+  # OPTIONAL: Zabbix service to monitor the data collection
   # # lnd-dbreader-zabbix:
   #   container_name: lnd-dbreader-zabbix
   #   read_only: true

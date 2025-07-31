@@ -4,7 +4,7 @@ A production-ready service that continuously reads Lightning Network Daemon (LND
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Go Version](https://img.shields.io/badge/go-1.23+-blue.svg)
-![LND Version](https://img.shields.io/badge/LND-v0.19.1--beta-orange.svg)
+![LND Version](https://img.shields.io/badge/LND-v0.19.1--beta-blue.svg)
 
 ## 🚀 Features
 
@@ -33,9 +33,9 @@ A production-ready service that continuously reads Lightning Network Daemon (LND
 - **Go 1.23+**: For development/building from source
 
 ### Hardware Requirements
-- **RAM**: Minimum 2GB, Recommended 4GB+
-- **Storage**: 10GB+ for database storage
-- **CPU**: 2+ cores recommended for production
+- **RAM**: 4GB+
+- **Storage**: 20GB+
+- **CPU**: 4+ cores
 
 ## 🚀 Quick Start
 

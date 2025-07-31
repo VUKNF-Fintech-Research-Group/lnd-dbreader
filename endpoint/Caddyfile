@@ -1,0 +1,156 @@
+:80 {
+
+    # SECURITY: Restricts the app in the browser from communicating with external sources
+    header Content-Security-Policy "
+        default-src 'self';
+        script-src 'self' 'unsafe-inline' 'unsafe-eval';
+        style-src 'self' 'unsafe-inline';
+        img-src 'self' data:;
+        font-src 'self' data:;
+        connect-src 'self';
+        frame-ancestors 'self';
+        frame-src 'self';
+        child-src 'self';
+        form-action 'self';
+        worker-src 'self' blob:;
+        base-uri 'self';
+        block-all-mixed-content;
+    "
+
+    # Rawdata
+    redir /rawdata /rawdata/
+    handle_path /rawdata/* {
+        root * /srv
+        file_server browse
+    }
+
+
+    # DBGate
+    redir /dbgate /dbgate/
+    handle /dbgate/* {
+
+        reverse_proxy lnd-dbreader-dbgate:3000
+    }
+
+
+    # Subsystem selector
+    handle_path / {
+        header Content-Type "text/html; charset=utf-8"
+        respond `   <!DOCTYPE html>
+                    <html lang="en">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>LND DB Reader - System Dashboard</title>
+                        <style>
+                            * {
+                                margin: 0;
+                                padding: 0;
+                                box-sizing: border-box;
+                            }
+                            
+                            body {
+                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                min-height: 100vh;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                color: #333;
+                            }
+                            
+                            .container {
+                                background: white;
+                                padding: 2rem;
+                                border-radius: 12px;
+                                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                                max-width: 500px;
+                                width: 90%;
+                                text-align: center;
+                            }
+                            
+                            .logo {
+                                font-size: 2rem;
+                                font-weight: 700;
+                                color: #4a5568;
+                                margin-bottom: 0.5rem;
+                            }
+                            
+                            .subtitle {
+                                color: #718096;
+                                margin-bottom: 2rem;
+                            }
+                            
+                            .services {
+                                display: flex;
+                                flex-direction: column;
+                                gap: 1rem;
+                            }
+                            
+                            .service-card {
+                                display: block;
+                                padding: 1rem 1.5rem;
+                                background: #f7fafc;
+                                border: 2px solid #e2e8f0;
+                                border-radius: 8px;
+                                text-decoration: none;
+                                color: #4a5568;
+                                transition: all 0.2s ease;
+                            }
+                            
+                            .service-card:hover {
+                                background: #667eea;
+                                border-color: #667eea;
+                                color: white;
+                                transform: translateY(-2px);
+                                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+                            }
+                            
+                            .service-title {
+                                font-weight: 600;
+                                font-size: 1.1rem;
+                                margin-bottom: 0.25rem;
+                            }
+                            
+                            .service-description {
+                                font-size: 0.9rem;
+                                opacity: 0.8;
+                            }
+                            
+                            .footer {
+                                margin-top: 2rem;
+                                padding-top: 1rem;
+                                border-top: 1px solid #e2e8f0;
+                                color: #718096;
+                                font-size: 0.8rem;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <div class="logo">⚡ LND DB Reader</div>
+                            <div class="subtitle">Lightning Network Database Reader Management</div>
+                            
+                            <div class="services">
+                                <a href="/rawdata/" class="service-card">
+                                    <div class="service-title">📁 Raw Data Browser</div>
+                                    <div class="service-description">Browse and download raw data files</div>
+                                </a>
+                                
+                                <a href="/dbgate/" class="service-card">
+                                    <div class="service-title">🗃️ Database Browser</div>
+                                    <div class="service-description">Interactive database management interface</div>
+                                </a>
+                            </div>
+                            
+                            <div class="footer">
+                                LND Database Reader v1.0
+                            </div>
+                        </div>
+                    </body>
+                    </html>` 200
+
+    }
+}
+
+

@@ -6,6 +6,8 @@ A production-ready service that continuously reads Lightning Network Daemon (LND
 ![Go Version](https://img.shields.io/badge/go-1.23+-blue.svg)
 ![LND Version](https://img.shields.io/badge/LND-v0.19.1--beta-blue.svg)
 
+<img width="1082" height="746" alt="Screenshot 2025-08-05 at 14 53 43" src="https://github.com/user-attachments/assets/e60587dd-070d-4353-9d60-53003090d541" />
+
 ## 🚀 Features
 
 - **Continuous Synchronization**: Automatically syncs LND graph data at configurable intervals

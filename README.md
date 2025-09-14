@@ -24,21 +24,17 @@ A production-ready service that continuously reads Lightning Network Daemon (LND
 </br>
 
 ## 📋 Table of Contents
-
-- [Requirements](#requirements)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Database Schema](#database-schema)
+- [Quick Start](#-quick-start)
+- [Configuration](#️-configuration)
+- [Database Schema](#-database-schema)
 
 </br>
 
 ## 🔧 Requirements
 
 ### System Requirements
+- **Ubuntu OS**: Tested using - Ubuntu 22.04.5 LTS
 - **Docker & Docker Compose**: For containerized deployment
-- **LND v0.19.3-beta**: Running Lightning Network node
-- **MySQL 8.0+**: Database server
-- **Go 1.23+**: For development/building from source
 
 ### Hardware Requirements
 - **RAM**: 4GB+
@@ -163,10 +159,8 @@ Stores network addresses for Lightning Network nodes.
 
 
 ### Database Monitoring
+Access the database browser at http://<server-ip>/dbgate
 
-Access the database browser at http://<server-ip>:8092 with credentials:
-- **Username**: `admin`
-- **Password**: `admin`
 
 </br>
 

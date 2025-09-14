@@ -17,7 +17,7 @@ services:
   # LND Daemon
   lnd-dbreader-lnd:
     container_name: lnd-dbreader-lnd
-    image: lightninglabs/lnd:v0.19.2-beta.rc2
+    image: lightninglabs/lnd:v0.19.3-beta
     environment:
       - NETWORK=mainnet
 

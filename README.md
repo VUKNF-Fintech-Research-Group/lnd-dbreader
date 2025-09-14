@@ -1,23 +1,27 @@
-# LND Database Reader v0.19.1
+# LND Database Reader v0.19.3
 
-A production-ready service that continuously reads Lightning Network Daemon (LND) channel graph data and synchronizes it to a MySQL database. This application is specifically designed for LND v0.19.1-beta and handles the new graph database architecture introduced in that version.
+A production-ready service that continuously reads Lightning Network Daemon (LND) channel graph data and synchronizes it to a MySQL database. This application is specifically designed for LND v0.19.3-beta and handles the new graph database architecture introduced in that version.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Go Version](https://img.shields.io/badge/go-1.23+-blue.svg)
-![LND Version](https://img.shields.io/badge/LND-v0.19.1--beta-blue.svg)
+![LND Version](https://img.shields.io/badge/LND-v0.19.3--beta-blue.svg)
 
 <img width="1082" height="746" alt="Screenshot 2025-08-05 at 14 53 43" src="https://github.com/user-attachments/assets/e60587dd-070d-4353-9d60-53003090d541" />
+
+</br>
 
 ## 🚀 Features
 
 - **Continuous Synchronization**: Automatically syncs LND graph data at configurable intervals
-- **LND v0.19.1 Compatible**: Fully supports the new graph database architecture
+- **LND v0.19.3 Compatible**: Fully supports the new graph database architecture
 - **Production Ready**: Includes graceful shutdown, error recovery, and robust logging
 - **Database Lock Avoidance**: Uses file copying to avoid conflicts with running LND
 - **Batch Processing**: Efficient bulk inserts for high-performance data processing
 - **Docker Support**: Complete containerized setup with Docker Compose
 - **MySQL Integration**: Stores data in structured MySQL tables for analysis
 - **Comprehensive Logging**: Detailed logs for monitoring and debugging
+
+</br>
 
 ## 📋 Table of Contents
 
@@ -26,11 +30,13 @@ A production-ready service that continuously reads Lightning Network Daemon (LND
 - [Configuration](#configuration)
 - [Database Schema](#database-schema)
 
+</br>
+
 ## 🔧 Requirements
 
 ### System Requirements
 - **Docker & Docker Compose**: For containerized deployment
-- **LND v0.19.1-beta**: Running Lightning Network node
+- **LND v0.19.3-beta**: Running Lightning Network node
 - **MySQL 8.0+**: Database server
 - **Go 1.23+**: For development/building from source
 
@@ -38,6 +44,9 @@ A production-ready service that continuously reads Lightning Network Daemon (LND
 - **RAM**: 4GB+
 - **Storage**: 20GB+
 - **CPU**: 4+ cores
+
+</br>
+</br>
 
 ## 🚀 Quick Start
 
@@ -48,26 +57,39 @@ git clone https://github.com/VUKNF-Fintech-Research-Group/lnd-dbreader.git
 cd lnd-dbreader
 ```
 
-### 2. Configure Environment
-
-Create `docker-compose.yml` from sample:
+### 2. Create Docker-Compose file stack
 
 ```bash
 cp docker-compose.yml.sample docker-compose.yml
 ```
 
-### 3. Start the Services
-
+### 3. Edit configuration (if needed)
 ```bash
-# Start all services
-./runUpdateThisStack.sh
-
-# View logs
-sudo docker-compose logs -f
-
-# View database
-# Access DbGate at http://<server-ip>:8092 (admin/admin)
+nano docker-compose.yml
 ```
+
+### 4. Start the Services
+Start all services
+```bash
+./runUpdateThisStack.sh
+```
+
+</br>
+
+### 5. OPTIONAL: Check the state
+Open in web browser:
+```
+http://<server-ip>/dbgate
+```
+Run command to check the logs:
+```bash
+sudo docker-compose logs -f
+```
+
+
+</br>
+</br>
+
 
 ## ⚙️ Configuration
 
@@ -91,6 +113,8 @@ Below environment variables for lnd-dbreader-dbreader service configuration:
 - **lnd-dbreader-mysql**: MySQL database server
 - **lnd-dbreader-dbgate**: Web-based database browser
 - **lnd-dbreader-lnd**: LND Lightning Network node
+
+</br>
 
 ## 📊 Database Schema
 
@@ -144,6 +168,7 @@ Access the database browser at http://<server-ip>:8092 with credentials:
 - **Username**: `admin`
 - **Password**: `admin`
 
+</br>
 
 ## 🙏 Acknowledgments
 

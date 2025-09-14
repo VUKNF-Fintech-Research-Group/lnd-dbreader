@@ -28,7 +28,6 @@
     # DBGate
     redir /dbgate /dbgate/
     handle /dbgate/* {
-
         reverse_proxy lnd-dbreader-dbgate:3000
     }
 

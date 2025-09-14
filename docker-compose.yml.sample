@@ -30,11 +30,13 @@ services:
       - ./lnd/start-lnd.sh:/start-lnd.sh:ro
     entrypoint: ["/start-lnd.sh"]
     healthcheck:
-      test: ["CMD-SHELL", "lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon getinfo | grep -q '\"synced_to_chain\": true' && lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon listpeers | grep -q '\"pub_key\"'"]
-      interval: 5m
+      # Health check ensures LND is both synced to blockchain AND has at least one peer connected
+      # Checks: 1) "synced_to_chain": true in getinfo, 2) count of "pub_key" entries > 0 in listpeers
+      test: ["CMD-SHELL", "lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon getinfo | grep -q '\"synced_to_chain\": true' && [ $(lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon listpeers | grep -c '\"pub_key\"') -gt 0 ]"]
+      interval: 30m
       timeout: 10s
-      retries: 3
-      start_period: 5m
+      retries: 5
+      start_period: 15m
     logging:
       driver: "json-file"
       options:

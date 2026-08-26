@@ -98,15 +98,18 @@ services:
     # image: lnd-dbreader-dbreader
     # build: ./dbreader
 
+    user: 1000:1000
+    read_only: true
     environment:
       MYSQL_HOST: lnd-dbreader-mysql
       MYSQL_DATABASE: lnd_data
       MYSQL_USER: lnd_data
       MYSQL_PASSWORD: lnd_data
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
     volumes:
       # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
       - ./_DATA/lnd/data/graph/mainnet/:/data
-      # - ./dbreader/app:/app                                                          # Dev
     restart: unless-stopped
 
 
@@ -142,6 +145,7 @@ services:
     # image: lnd-dbreader-exporter
     # build: ./exporter
 
+    user: 1000:1000
     read_only: true
     volumes:
       # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time

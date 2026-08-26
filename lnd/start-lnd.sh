@@ -9,6 +9,12 @@
 #  the node exists so dbreader can read the gossip graph it
 #  collects) and a FIXED peer list instead of DNS seeds.
 #
+#  Runs as user 1000 on a read-only root filesystem, so
+#  the data directory cannot be the image's /root/.lnd
+#  (/root is 0700 root and unreachable): compose mounts
+#  _DATA/lnd at /lnd and --lnddir points lnd there. lncli
+#  in the healthcheck needs the same --lnddir=/lnd.
+#
 #  Environment (compose sets the first four):
 #    NETWORK          — mainnet
 #    NEUTRINO_CONNECT — comma list of bitcoin peers; these
@@ -20,6 +26,7 @@
 #    LNDHOST          — extra TLS SAN for the RPC cert
 #    LND_DEBUG        — lnd debuglevel (default debug)
 #    CHAIN            — bitcoin (default bitcoin)
+#    LNDDIR           — the data directory (default /lnd)
 #
 #  Mounted read-only at /start-lnd.sh and set as the
 #  service's entrypoint in docker-compose.yml; anything in
@@ -138,12 +145,15 @@ CHAIN=$(set_default "$CHAIN" "bitcoin")
 HOSTNAME=$(hostname)
 
 
-# STEP 2: peers and fee estimator. The :- defaults are lnd
-# upstream's and only apply when compose leaves the
-# variable unset — it sets both
-# ========================================================
+# STEP 2: peers, fee estimator, data directory. The peer
+# and fee :- defaults are lnd upstream's and only apply
+# when compose leaves the variable unset — it sets both.
+# LNDDIR defaults to the /lnd mount; it must match the
+# volume target in compose and the healthcheck's --lnddir
+# =======================================================
 NEUTRINO_CONNECT=${NEUTRINO_CONNECT:-"faucet.lightning.community,btcd-mainnet.lightning.computer"}
 FEE_URL=${FEE_URL:-"https://nodes.lightning.computer/fees/v1/btc"}
+LNDDIR=${LNDDIR:-"/lnd"}
 
 
 # STEP 3: one --neutrino.connect flag per peer. IFS applies
@@ -158,7 +168,10 @@ done
 
 
 # STEP 4: replace the shell with lnd, so PID 1 is lnd and
-# docker stop's SIGTERM reaches it directly. RPC listens on
+# docker stop's SIGTERM reaches it directly. --lnddir is
+# where the wallet, tls.cert, macaroons, logs and the graph
+# live — the only writable place on the read-only root FS.
+# RPC listens on
 # the container hostname AND localhost — the compose
 # healthcheck's lncli uses localhost and is the only RPC
 # client today. tlsextradomain puts LNDHOST into the cert's
@@ -166,6 +179,7 @@ done
 # under that name. "$@" is whatever compose `command:` adds
 # =========================================================
 exec lnd \
+    "--lnddir=$LNDDIR" \
     --noseedbackup \
     "--$CHAIN.active" \
     "--$CHAIN.$NETWORK" \

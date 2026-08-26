@@ -31,6 +31,8 @@ services:
   lnd-dbreader-lnd:
     container_name: lnd-dbreader-lnd
     image: lightninglabs/lnd:v0.19.3-beta
+    user: 1000:1000
+    read_only: true
     environment:
       - NETWORK=mainnet
 
@@ -39,13 +41,13 @@ services:
       - FEE_URL=https://mempool.space/api/v1/fees/recommended
       - LNDHOST=lnd-dbreader-lnd
     volumes:
-      - ./_DATA/lnd:/root/.lnd
+      - ./_DATA/lnd:/lnd
       - ./lnd/start-lnd.sh:/start-lnd.sh:ro
     entrypoint: ["/start-lnd.sh"]
     healthcheck:
       # Health check ensures LND is both synced to blockchain AND has at least one peer connected
       # Checks: 1) "synced_to_chain": true in getinfo, 2) count of "pub_key" entries > 0 in listpeers
-      test: ["CMD-SHELL", "lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon getinfo | grep -q '\"synced_to_chain\": true' && [ $(lncli --rpcserver=localhost:10009 --macaroonpath=/root/.lnd/data/chain/bitcoin/mainnet/admin.macaroon listpeers | grep -c '\"pub_key\"') -gt 0 ]"]
+      test: ["CMD-SHELL", "lncli --lnddir=/lnd --rpcserver=localhost:10009 getinfo | grep -q '\"synced_to_chain\": true' && [ $(lncli --lnddir=/lnd --rpcserver=localhost:10009 listpeers | grep -c '\"pub_key\"') -gt 0 ]"]
       interval: 30m
       timeout: 10s
       retries: 5
@@ -201,18 +203,21 @@ services:
   # ------------------------------------------------------------
   # # OPTIONAL: Zabbix service to monitor the data collection
   # lnd-dbreader-zabbix:
+  #   container_name: lnd-dbreader-zabbix
 
   #   # Official image
   #   image: vuknf/lnd-dbreader-zabbix:latest
 
   #   # # Self-built
-  #   # container_name: lnd-dbreader-zabbix
+  #   # image: lnd-dbreader-zabbix
   #   # build: ./zabbix
 
+  #   user: 1000:1000
   #   read_only: true
   #   environment:
   #     ZABBIX_SERVER: <Zabbix Server IP>
   #     ZABBIX_PORT: 10051
+  #     ZABBIX_MONITORING_HOST: LND-DBREADER
   #     MYSQL_HOST: lnd-dbreader-mysql
   #     MYSQL_USER: lnd_data
   #     MYSQL_PASSWORD: lnd_data

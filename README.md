@@ -103,7 +103,7 @@ All containers live in one Docker Compose stack, named `lnd-dbreader-<service>`:
 | Service | Image | Role |
 |---------|-------|------|
 | `lnd-dbreader-endpoint` | `caddy:2.11-alpine` | The only published port (80). Serves the dashboard at `/`, proxies `/dbgate/`, and serves `_DATA/exporter` read-only at `/rawdata/` |
-| `lnd-dbreader-lnd` | `lightninglabs/lnd:v0.19.3-beta` | Graph-only LND node: neutrino backend, fixed peer list, `--noseedbackup` (never holds funds). Started by `lnd/start-lnd.sh` |
+| `lnd-dbreader-lnd` | `lightninglabs/lnd:v0.19.3-beta` | Graph-only LND node: neutrino backend, fixed peer list, `--noseedbackup` (never holds funds). Runs as user 1000 on a read-only filesystem with its data at `/lnd`. Started by `lnd/start-lnd.sh` |
 | `lnd-dbreader-autoheal` | `willfarrell/autoheal:1.2.0` | Restarts the LND container when its healthcheck (synced to chain and at least one peer) fails |
 | `lnd-dbreader-dbreader` | `vuknf/lnd-dbreader-dbreader` | The Go sync service — this repository's `dbreader/` |
 | `lnd-dbreader-mysql` | `mysql:8.4.0` | The database. Config in `mysql/my.cnf`, data in `_DATA/mysql` |
@@ -111,7 +111,7 @@ All containers live in one Docker Compose stack, named `lnd-dbreader-<service>`:
 | `lnd-dbreader-dbgate` | `dbgate/dbgate:7.2.3-alpine` | Web database browser, reachable through the endpoint only |
 | `lnd-dbreader-zabbix` | `vuknf/lnd-dbreader-zabbix` | **Optional** (commented out in the sample): pushes table row counts to a Zabbix server every 30 minutes |
 
-The LND node's data directory is `_DATA/lnd`; dbreader mounts `_DATA/lnd/data/graph/mainnet/` as `/data` and reads `channel.db` from there.
+The LND node's data directory is `_DATA/lnd`, mounted at `/lnd` inside the LND container (not the image's default `/root/.lnd`, which an unprivileged user cannot reach); dbreader mounts `_DATA/lnd/data/graph/mainnet/` as `/data` and reads `channel.db` from there. `runUpdateThisStack.sh` chowns `_DATA` to `1000:1000` on every run, so the unprivileged containers own their files.
 
 </br>
 
@@ -152,7 +152,7 @@ An **empty** value counts as unset (`MYSQL_PASSWORD=` yields the default, not an
 
 ### LND node
 
-`lnd/start-lnd.sh` is the LND container's entrypoint, configured through the service's environment in `docker-compose.yml`: `NETWORK`, `NEUTRINO_CONNECT` (the **only** bitcoin peers the node talks to — they must serve compact block filters; `neutrinoChecker.py` tests candidates), `FEE_URL`, and `LNDHOST`.
+`lnd/start-lnd.sh` is the LND container's entrypoint, configured through the service's environment in `docker-compose.yml`: `NETWORK`, `NEUTRINO_CONNECT` (the **only** bitcoin peers the node talks to — they must serve compact block filters; `neutrinoChecker.py` tests candidates), `FEE_URL`, `LNDHOST`, and `LNDDIR` (default `/lnd` — must match the volume target and the `--lnddir` flag in the healthcheck's `lncli` calls).
 
 </br>
 

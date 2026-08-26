@@ -1,13 +1,10 @@
 #!/bin/bash
 
-# Prepare LND data directory
-mkdir -p ./lnd/lnd
+# Prepare data directories
+mkdir -p ./_DATA/lnd
+mkdir -p ./_DATA/mysql
+mkdir -p ./_DATA/exporter
 
-# Prepare MySQL data directory
-mkdir -p mysql/data
-
-# Prepare DATA directory
-mkdir -p ./DATA
 
 
 

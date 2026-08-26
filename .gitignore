@@ -1,15 +1,8 @@
 # Docker compose file
 docker-compose.yml
 
-# Raw data
-DATA
-
-# Mysql Internal DB files
-mysql/data/*
-
-# LND Downloaded Data
-lnd/lnd
-
+# Persisted data
+/_DATA
 
 # Claude code
 /.claude

@@ -11,7 +11,7 @@ services:
     read_only: true
     volumes:
       - ./endpoint/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./DATA:/srv:ro
+      - ./_DATA/exporter:/srv:ro
     ports:
       - "80:80"
     restart: unless-stopped
@@ -39,7 +39,7 @@ services:
       - FEE_URL=https://mempool.space/api/v1/fees/recommended
       - LNDHOST=lnd-dbreader-lnd
     volumes:
-      - ./lnd/lnd:/root/.lnd
+      - ./_DATA/lnd:/root/.lnd
       - ./lnd/start-lnd.sh:/start-lnd.sh:ro
     entrypoint: ["/start-lnd.sh"]
     healthcheck:
@@ -103,7 +103,7 @@ services:
       MYSQL_PASSWORD: lnd_data
     volumes:
       # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
-      - ./lnd/lnd/data/graph/mainnet/:/data
+      - ./_DATA/lnd/data/graph/mainnet/:/data
       # - ./dbreader/app:/app                                                          # Dev
     restart: unless-stopped
 
@@ -114,18 +114,18 @@ services:
     image: mysql:8.4.0
     user: 1000:1000
     read_only: true
-    tmpfs:
-      - /run/mysqld:uid=999,gid=999
-      - /tmp
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: lnd_data
       MYSQL_USER: lnd_data
       MYSQL_PASSWORD: lnd_data
+    tmpfs:
+      - /run/mysqld:uid=999,gid=999
+      - /tmp
     volumes:
       # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
       - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
-      - ./mysql/data:/var/lib/mysql
+      - ./_DATA/mysql:/var/lib/mysql
     restart: unless-stopped
 
 
@@ -144,7 +144,7 @@ services:
     volumes:
       # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
       # - ./exporter:/app                                                              # Dev
-      - ./DATA:/DATA
+      - ./_DATA/exporter:/DATA
     restart: unless-stopped
 
   # ------------------------------------------------------------
@@ -200,10 +200,14 @@ services:
   # ------------------------------------------------------------
   # OPTIONAL: Zabbix service to monitor the data collection
   # # lnd-dbreader-zabbix:
+
+  #   # Official image
+  #   image: vuknf/lnd-dbreader-zabbix:latest
+
+  #   # Self-built
   #   container_name: lnd-dbreader-zabbix
-  #   build:
-  #     context: ./zabbix
-  #     dockerfile: Dockerfile
+  #   build: ./zabbix
+
   #   read_only: true
   #   environment:
   #     ZABBIX_SERVER: <Zabbix Server IP>

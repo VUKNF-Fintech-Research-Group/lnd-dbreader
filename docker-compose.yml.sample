@@ -1,19 +1,32 @@
 services:
 
+  # ------------------------------------------------------------
+  #                Incoming traffic endpoint
+  # ------------------------------------------------------------
   # Endpoint proxy to access the services
   lnd-dbreader-endpoint:
     container_name: lnd-dbreader-endpoint
-    image: caddy:2-alpine
+    image: caddy:2.11-alpine
+    user: 1000:1000
     read_only: true
     volumes:
       - ./endpoint/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./DATA:/srv
+      - ./DATA:/srv:ro
     ports:
       - "80:80"
     restart: unless-stopped
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
 
 
 
+
+
+
+  # ------------------------------------------------------------
+  #                        LND services
+  # ------------------------------------------------------------
   # LND Daemon
   lnd-dbreader-lnd:
     container_name: lnd-dbreader-lnd
@@ -22,7 +35,7 @@ services:
       - NETWORK=mainnet
 
       # Neutrino peers (https://bitnodes.io/nodes/?page=1&q=COMPACT)
-      - NEUTRINO_CONNECT=185.70.43.194,176.9.17.121,167.235.9.82,176.9.150.253
+      - NEUTRINO_CONNECT=185.70.43.194,167.235.9.82,176.9.150.253
       - FEE_URL=https://mempool.space/api/v1/fees/recommended
       - LNDHOST=lnd-dbreader-lnd
     volumes:
@@ -48,11 +61,41 @@ services:
 
 
 
+  lnd-dbreader-autoheal:
+    container_name: lnd-dbreader-autoheal
+    image: willfarrell/autoheal:1.2.0
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal-lnd-app
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    network_mode: none
+    restart: unless-stopped
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+
+
+
+
+
+
+
+
+  # ------------------------------------------------------------
+  #                    LND DB Reader services
+  # ------------------------------------------------------------
   # LND Database Reader
   lnd-dbreader-dbreader:
     container_name: lnd-dbreader-dbreader
+
+    # # Official image
+    # image: vuknf/lnd-dbreader-dbreader:latest
+
+    # Self-built
     image: lnd-dbreader-dbreader
     build: ./dbreader
+
     environment:
       MYSQL_HOST: lnd-dbreader-mysql
       MYSQL_DATABASE: lnd_data
@@ -61,8 +104,8 @@ services:
     volumes:
       # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
       - ./lnd/lnd/data/graph/mainnet/:/data
+      # - ./dbreader:/app                                                              # Dev
     restart: unless-stopped
-
 
 
   # Database to store collected data
@@ -86,7 +129,39 @@ services:
     restart: unless-stopped
 
 
+  # Data Exporter for the BLNSTATS server
+  lnd-dbreader-exporter:
+    container_name: lnd-dbreader-exporter
 
+    # # Official image
+    # image: vuknf/lnd-dbreader-exporter:latest
+
+    # Self-built
+    image: lnd-dbreader-exporter
+    build: ./exporter
+
+    read_only: true
+    volumes:
+      # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
+      # - ./exporter:/app                                                              # Dev
+      - ./DATA:/DATA
+    restart: unless-stopped
+
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+  # ------------------------------------------------------------
+  #              Additional administrative services
+  # ------------------------------------------------------------
   # Database browser to view the results
   lnd-dbreader-dbgate:
     container_name: lnd-dbreader-dbgate
@@ -108,41 +183,28 @@ services:
       ENGINE_con1: mysql@dbgate-plugin-mysql
     restart: unless-stopped
 
-
-
-  # Data Exporter for the BLNSTATS server
-  lnd-dbreader-exporter:
-    container_name: lnd-dbreader-exporter
-    image: lnd-dbreader-exporter
-    build: ./exporter
-    read_only: true
-    volumes:
-      # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
-      - ./DATA:/DATA
-    restart: unless-stopped
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
 
 
 
-  lnd-dbreader-autoheal:
-    container_name: lnd-dbreader-autoheal
-    image: willfarrell/autoheal:1.2.0
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      AUTOHEAL_CONTAINER_LABEL: autoheal-lnd-app
-    network_mode: none
-    restart: unless-stopped
 
 
 
+
+
+
+  # ------------------------------------------------------------
+  #                     Zabbix monitoring
+  # ------------------------------------------------------------
   # OPTIONAL: Zabbix service to monitor the data collection
   # # lnd-dbreader-zabbix:
   #   container_name: lnd-dbreader-zabbix
-  #   read_only: true
   #   build:
   #     context: ./zabbix
   #     dockerfile: Dockerfile
+  #   read_only: true
   #   environment:
   #     ZABBIX_SERVER: <Zabbix Server IP>
   #     ZABBIX_PORT: 10051
@@ -152,5 +214,12 @@ services:
   #     MYSQL_DATABASE: lnd_data
   #     TABLES_TO_CHECK: channel_announcements,node_announcements
   #   restart: unless-stopped
+
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # ------------------------------------------------------------
+
+
+
 
 

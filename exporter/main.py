@@ -8,9 +8,9 @@
 #  every 12 hours. The file is written to a _tmp name and
 #  renamed into place, so a reader never sees a half-written
 #  file. ~30 MB gzip'd today: 480k channel rows, 120k
-#  addresses, 28k node aliases. The BLNSTATS server reads
-#  it from _DATA/exporter — how it gets there is outside
-#  this repo.
+#  addresses, 28k node aliases. The endpoint Caddy serves
+#  _DATA/exporter read-only at http://<host>/rawdata/, and
+#  that is where the BLNSTATS server fetches it from.
 #
 #  Environment (none set by compose — defaults apply):
 #    DB_HOST / DB_NAME / DB_USER / DB_PASSWORD

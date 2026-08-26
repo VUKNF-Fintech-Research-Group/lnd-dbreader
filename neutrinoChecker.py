@@ -71,7 +71,6 @@ def check_neutrino_support(node_ip, node_port):
 # List of nodes to check
 nodes = [
     ("185.70.43.194", 8333),
-    ("176.9.17.121", 8333),
     ("167.235.9.82", 8333),
     ("176.9.150.253", 8333),
 ]

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-CONTAINER_NAME=lnd-dbreader-dbreader
+CONTAINER_NAME=lnd-dbreader-exporter
 
 TODAY=$(date +%Y%m%d)
 sudo docker login -u admin@knf.vu.lt

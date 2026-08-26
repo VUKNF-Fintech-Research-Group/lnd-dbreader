@@ -89,12 +89,12 @@ services:
   lnd-dbreader-dbreader:
     container_name: lnd-dbreader-dbreader
 
-    # # Official image
-    # image: vuknf/lnd-dbreader-dbreader:latest
+    # Official image
+    image: vuknf/lnd-dbreader-dbreader:latest
 
-    # Self-built
-    image: lnd-dbreader-dbreader
-    build: ./dbreader
+    # # Self-built
+    # image: lnd-dbreader-dbreader
+    # build: ./dbreader
 
     environment:
       MYSQL_HOST: lnd-dbreader-mysql
@@ -133,12 +133,12 @@ services:
   lnd-dbreader-exporter:
     container_name: lnd-dbreader-exporter
 
-    # # Official image
-    # image: vuknf/lnd-dbreader-exporter:latest
+    # Official image
+    image: vuknf/lnd-dbreader-exporter:latest
 
-    # Self-built
-    image: lnd-dbreader-exporter
-    build: ./exporter
+    # # Self-built
+    # image: lnd-dbreader-exporter
+    # build: ./exporter
 
     read_only: true
     volumes:

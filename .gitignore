@@ -6,3 +6,10 @@ docker-compose.yml
 
 # Claude code
 /.claude
+
+
+#### Other common ignored files ###
+__pycache__/
+*.py[cod]
+*$py.class
+

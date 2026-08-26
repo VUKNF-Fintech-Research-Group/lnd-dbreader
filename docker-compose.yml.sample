@@ -171,7 +171,7 @@ services:
     environment:
       WEB_ROOT: /dbgate
 
-      ### OPTIONAL: Add authentication to the database browser
+      # # OPTIONAL: Add authentication to the database browser
       # LOGINS: admin
       # LOGIN_PASSWORD_admin: admin
 

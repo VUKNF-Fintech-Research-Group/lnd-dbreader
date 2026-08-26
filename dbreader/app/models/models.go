@@ -1,5 +1,5 @@
 // -----------------------------------------------------------
-//  [*] models — LND v0.19.1 types, wrapped for JSON and MySQL
+//  [*] models — LND v0.19.3 types, wrapped for JSON and MySQL
 //
 //  Thin layer over LND's own packages: aliases for the graph
 //  model types and two wrappers that give lnwire

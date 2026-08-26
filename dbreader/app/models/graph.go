@@ -28,7 +28,7 @@ import (
 // ChannelGraph
 // -----------------------------------------------------------
 //
-// Satisfied by *graphdb.ChannelGraph (LND v0.19.1). The
+// Satisfied by *graphdb.ChannelGraph (LND v0.19.3). The
 // ForEachChannel callback receives the edge plus BOTH
 // directed policies; the ForEachNode callback receives a
 // node read-transaction and calls Node() on it. Both walks

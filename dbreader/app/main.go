@@ -18,7 +18,7 @@
 //  A failed sync never stops the loop: it is logged and the
 //  next tick tries again. Tables are (re)created on EVERY
 //  sync with IF NOT EXISTS, so a wiped database heals
-//  itself. go.mod pins LND v0.19.1-beta — the graph API
+//  itself. go.mod pins LND v0.19.3-beta — the graph API
 //  moved in 0.19 and the models package wraps that
 //  version's types.
 //
@@ -61,7 +61,7 @@ import (
 const (
 	// Only ever printed — the startup log line
 	appName    = "LND Database Reader"
-	appVersion = "v0.19.1"
+	appVersion = "v0.19.3"
 
 	// Sync cadence when SYNC_INTERVAL_MINUTES is unset or
 	// unparsable; bbolt open timeout for the copied file

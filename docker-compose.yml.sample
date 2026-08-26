@@ -104,7 +104,7 @@ services:
     volumes:
       # - /etc/localtime:/etc/localtime:ro   # OPTIONAL: Use local time
       - ./lnd/lnd/data/graph/mainnet/:/data
-      # - ./dbreader:/app                                                              # Dev
+      # - ./dbreader/app:/app                                                          # Dev
     restart: unless-stopped
 
 

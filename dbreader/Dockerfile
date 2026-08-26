@@ -5,7 +5,7 @@ FROM golang:1.23
 WORKDIR /app
 
 # Copy go mod and sum files
-COPY . .
+COPY app/ .
 
 # Download all dependencies
 RUN go mod tidy

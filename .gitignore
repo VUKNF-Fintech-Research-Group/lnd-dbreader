@@ -9,3 +9,7 @@ mysql/data/*
 
 # LND Downloaded Data
 lnd/lnd
+
+
+# Claude code
+/.claude

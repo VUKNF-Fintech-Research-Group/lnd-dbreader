@@ -2,20 +2,17 @@
 //  [*] models — LND v0.19.1 types, wrapped for JSON and MySQL
 //
 //  Thin layer over LND's own packages: aliases for the graph
-//  model types, two wrappers that give lnwire announcements
-//  a flat JSON shape (hex strings, "#rrggbb", host/port
-//  addresses) for the json_data columns, and Open, which
-//  builds a channeldb over a bbolt backend. The ChannelGraph
-//  interface lives next door in graph.go.
+//  model types and two wrappers that give lnwire
+//  announcements a flat JSON shape (hex strings, "#rrggbb",
+//  host/port addresses) for the json_data columns. The
+//  ChannelGraph interface lives next door in graph.go.
 //
 //  Split into:
 //
-//    ChannelEdgeInfo, ChannelEdgePolicy,
-//    LightningNode, DB, ReadTx     — type aliases
+//    ChannelEdgeInfo, ChannelEdgePolicy — type aliases
 //    CustomNodeAnnouncement        — node → JSON
 //    CustomAddress                 — one address in that JSON
 //    CustomChannelAnnouncement     — channel → JSON
-//    Open                          — channeldb over bbolt
 // -----------------------------------------------------------
 
 
@@ -29,12 +26,8 @@ import (
 	"net"
 	"strconv"
 
-	// btcd / btcwallet / LND
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/lightningnetwork/lnd/channeldb"
+	// LND
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -50,10 +43,8 @@ import (
 // -----------------------------------------------------------
 //
 // = aliases, not new types, so LND values pass straight
-// through. Only ChannelEdgeInfo and ChannelEdgePolicy are
-// used (the ForEachChannel callback signature in db);
-// LightningNode, DB and ReadTx have no consumer at the
-// moment.
+// through: the ForEachChannel callback signature in db is
+// written against these two names.
 //
 // Used by:
 //   - db/announcements.go SendChannelAnnouncements
@@ -62,9 +53,6 @@ import (
 type (
 	ChannelEdgeInfo   = models.ChannelEdgeInfo
 	ChannelEdgePolicy = models.ChannelEdgePolicy
-	LightningNode     = models.LightningNode
-	DB                = channeldb.DB
-	ReadTx            = walletdb.ReadTx
 )
 
 
@@ -129,11 +117,10 @@ type CustomAddress struct {
 // -----------------------------------------------------------
 //
 // *lnwire.ChannelAnnouncement1 by embedding (a pointer, so
-// the wrapper copies cheaply) plus MarshalJSON. The four
-// forwarding methods below are redundant — the embedded
-// pointer already promotes SCID, GetChainHash and the two
-// Node*KeyBytes — and stay only because a restyle changes
-// no code.
+// the wrapper copies cheaply) plus MarshalJSON. SCID,
+// GetChainHash and the two Node*KeyBytes come promoted from
+// the embedded pointer — db calls them on the wrapper as if
+// they were its own.
 //
 // Used by:
 //   - db/announcements.go SendChannelAnnouncements
@@ -141,77 +128,6 @@ type CustomAddress struct {
 
 type CustomChannelAnnouncement struct {
 	*lnwire.ChannelAnnouncement1
-}
-
-
-
-
-
-
-// -----------------------------------------------------------
-// CustomChannelAnnouncement.SCID
-// -----------------------------------------------------------
-//
-// Used by:
-//   - db/announcements.go SendChannelAnnouncements
-//   - CustomChannelAnnouncement.MarshalJSON (below)
-// -----------------------------------------------------------
-
-func (c CustomChannelAnnouncement) SCID() lnwire.ShortChannelID {
-	return c.ChannelAnnouncement1.SCID()
-}
-
-
-
-
-
-
-// -----------------------------------------------------------
-// CustomChannelAnnouncement.GetChainHash
-// -----------------------------------------------------------
-//
-// Used by:
-//   - CustomChannelAnnouncement.MarshalJSON (below)
-// -----------------------------------------------------------
-
-func (c CustomChannelAnnouncement) GetChainHash() chainhash.Hash {
-	return c.ChannelAnnouncement1.GetChainHash()
-}
-
-
-
-
-
-
-// -----------------------------------------------------------
-// CustomChannelAnnouncement.Node1KeyBytes
-// -----------------------------------------------------------
-//
-// Used by:
-//   - db/announcements.go SendChannelAnnouncements
-//   - CustomChannelAnnouncement.MarshalJSON (below)
-// -----------------------------------------------------------
-
-func (c CustomChannelAnnouncement) Node1KeyBytes() [33]byte {
-	return c.ChannelAnnouncement1.Node1KeyBytes()
-}
-
-
-
-
-
-
-// -----------------------------------------------------------
-// CustomChannelAnnouncement.Node2KeyBytes
-// -----------------------------------------------------------
-//
-// Used by:
-//   - db/announcements.go SendChannelAnnouncements
-//   - CustomChannelAnnouncement.MarshalJSON (below)
-// -----------------------------------------------------------
-
-func (c CustomChannelAnnouncement) Node2KeyBytes() [33]byte {
-	return c.ChannelAnnouncement1.Node2KeyBytes()
 }
 
 
@@ -321,49 +237,4 @@ func (c CustomChannelAnnouncement) MarshalJSON() ([]byte, error) {
 		BitcoinKey2:     hex.EncodeToString(c.ChannelAnnouncement1.BitcoinKey2[:]),
 		ExtraOpaqueData: hex.EncodeToString(c.ChannelAnnouncement1.ExtraOpaqueData),
 	})
-}
-
-
-
-
-
-
-
-
-// -----------------------------------------------------------
-// Open
-// -----------------------------------------------------------
-//
-// A channeldb over a fresh bbolt backend at dbDir/channel.db
-// — the file NAME is hardcoded here, only the directory is
-// a parameter. kvdb.GetBoltBackend creates the file when it
-// is missing rather than failing, which is how main.go ends
-// up with an empty /tmp/channel.db (see the
-// processLNDDatabase banner there). The backend is closed
-// again if channeldb refuses it.
-//
-// Used by:
-//   - main.go processLNDDatabase — STEP 2.1
-// -----------------------------------------------------------
-
-func Open(dbDir string) (*channeldb.DB, error) {
-	backend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
-		DBPath:            dbDir,
-		DBFileName:        "channel.db",
-		NoFreelistSync:    true,
-		AutoCompact:       false,
-		AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
-		DBTimeout:         kvdb.DefaultDBTimeout,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create kvdb backend at %s: %w", dbDir, err)
-	}
-
-	db, err := channeldb.CreateWithBackend(backend)
-	if err != nil {
-		backend.Close()
-		return nil, fmt.Errorf("failed to create channeldb with backend at %s: %w", dbDir, err)
-	}
-
-	return db, nil
 }

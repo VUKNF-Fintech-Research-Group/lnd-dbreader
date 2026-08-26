@@ -6,18 +6,19 @@
 //  KEY UPDATE statements, batchSize rows per statement. The
 //  graph is walked through the models.ChannelGraph
 //  interface; the row shapes are the Custom* wrappers in
-//  models. Tables come from initialization.go.
+//  models. Tables come from initialization.go. What is
+//  exported is the graph's TOPOLOGY — channels, nodes,
+//  addresses; channel policies (fees, limits, disabled) are
+//  intentionally left out, see SendChannelAnnouncements.
 //
-//  All three share one transaction pattern — and one bug:
-//  the deferred commit/rollback looks at the OUTER err, but
-//  the tail batch after the walk runs inside an `if err :=`
-//  that shadows it. When that last batch fails the function
-//  returns the error while the defer sees err == nil and
-//  COMMITS the batches before it. A failure during the walk
-//  is fine — the callback's error surfaces through ForEach*
-//  into the outer err and the transaction rolls back.
-//  tx.Commit()'s own error is discarded either way. Known
-//  bug, documented and not fixed in the restyle.
+//  All three share one pattern: every batch statement is
+//  its own autocommit transaction, nothing spans the walk.
+//  One transaction per sync used to hold every row lock of
+//  the whole import until the final commit and blew InnoDB's
+//  lock table (Error 1206) once the tables had grown. A sync
+//  is therefore NOT all-or-nothing: a failure at batch N
+//  leaves batches 1..N-1 committed — fine, every row is an
+//  idempotent upsert and the next sync re-applies it all.
 // -----------------------------------------------------------
 
 
@@ -63,9 +64,16 @@ const (
 // Walks every channel with ForEachChannel and upserts the
 // ANNOUNCEMENT half into channel_announcements: scid, the
 // two node keys, the two bitcoin keys, opaque data and the
-// JSON rendering (models.CustomChannelAnnouncement). The
-// two edge policies the walk hands over are ignored — fees,
-// CLTV deltas and disabled flags are not exported anywhere.
+// JSON rendering (models.CustomChannelAnnouncement).
+//
+// By design, TOPOLOGY ONLY: the two directed edge policies
+// the walk hands over (c1, c2 — fees, CLTV delta, HTLC
+// limits, the disabled flag, last update) are deliberately
+// not exported. If routing economics are ever needed they
+// belong in a fourth table keyed (short_channel_id,
+// node_id), one row per direction, with a fourth importer —
+// not in this one.
+//
 // short_channel_id is stored as the uint64; the JSON has it
 // as "block x tx x out" — the two do not look alike.
 //
@@ -77,31 +85,15 @@ func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 	log.Printf("Importing channel announcements to MySQL")
 
 
-	// STEP 1: one transaction for the whole import; the defer
-	// decides commit vs rollback from the outer err — see the
-	// file header for the shadowing bug
-	// =======================================================
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		} else {
-			tx.Commit()
-		}
-	}()
-
-
-	// STEP 2: walk the graph, collecting one placeholder group
-	// and its values per row, flushing every batchSize rows
+	// STEP 1: walk the graph, collecting one placeholder group
+	// and its values per row, flushing every batchSize rows —
+	// each flush commits on its own
 	// ========================================================
 	var values []interface{}
 	var placeholders []string
 	count := 0
 
-	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo, c1, c2 *models.ChannelEdgePolicy) error {
+	err := graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo, c1, c2 *models.ChannelEdgePolicy) error {
 		chanAnn := models.CustomChannelAnnouncement{
 			ChannelAnnouncement1: &lnwire.ChannelAnnouncement1{
 				ChainHash:       edgeInfo.ChainHash,
@@ -136,10 +128,10 @@ func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 
 		count++
 
-		// STEP 2.1: full batch — flush and start over (nil, so
+		// STEP 1.1: full batch — flush and start over (nil, so
 		// the old backing arrays go to the GC)
 		if count%batchSize == 0 {
-			if err := executeBatchChannelAnnouncements(tx, placeholders, values); err != nil {
+			if err := executeBatchChannelAnnouncements(db, placeholders, values); err != nil {
 				return err
 			}
 			values = nil
@@ -154,11 +146,10 @@ func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 	}
 
 
-	// STEP 3: the tail batch (under batchSize rows). The
-	// `err :=` here is the shadowing described in the header
-	// ======================================================
+	// STEP 2: the tail batch (under batchSize rows)
+	// =============================================
 	if len(values) > 0 {
-		if err := executeBatchChannelAnnouncements(tx, placeholders, values); err != nil {
+		if err := executeBatchChannelAnnouncements(db, placeholders, values); err != nil {
 			return err
 		}
 	}
@@ -182,13 +173,14 @@ func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 // for up to batchSize channel rows. Because unique_channel
 // covers every inserted column, the UPDATE branch can only
 // ever refresh last_seen (and rewrite json_data with the
-// same content).
+// same content). Runs as its own autocommit transaction,
+// so its row locks are gone the moment it returns.
 //
 // Used by:
 //   - SendChannelAnnouncements (above) — mid-walk and tail
 // -----------------------------------------------------------
 
-func executeBatchChannelAnnouncements(tx *sql.Tx, placeholders []string, values []interface{}) error {
+func executeBatchChannelAnnouncements(db *sql.DB, placeholders []string, values []interface{}) error {
 	query := `INSERT INTO channel_announcements 
 		(short_channel_id, node_id_1, node_id_2, bitcoin_key_1, bitcoin_key_2, extra_opaque_data, json_data, first_seen, last_seen) 
 		VALUES ` + strings.Join(placeholders, ",") + ` 
@@ -201,7 +193,7 @@ func executeBatchChannelAnnouncements(tx *sql.Tx, placeholders []string, values 
 		json_data = VALUES(json_data),
 		last_seen = NOW()`
 
-	_, err := tx.Exec(query, values...)
+	_, err := db.Exec(query, values...)
 	if err != nil {
 		return fmt.Errorf("failed to execute batch insert: %w", err)
 	}
@@ -237,31 +229,15 @@ func SendNodeAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 	log.Printf("Importing node announcements to MySQL")
 
 
-	// STEP 1: one transaction for the whole import; the defer
-	// decides commit vs rollback from the outer err — see the
-	// file header for the shadowing bug
-	// =======================================================
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		} else {
-			tx.Commit()
-		}
-	}()
-
-
-	// STEP 2: walk the graph, collecting one placeholder group
-	// and its values per row, flushing every batchSize rows
+	// STEP 1: walk the graph, collecting one placeholder group
+	// and its values per row, flushing every batchSize rows —
+	// each flush commits on its own
 	// ========================================================
 	var values []interface{}
 	var placeholders []string
 	count := 0
 
-	err = graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
+	err := graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
 		node := nodeTx.Node()
 
 		alias, err := lnwire.NewNodeAlias(node.Alias)
@@ -296,10 +272,10 @@ func SendNodeAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 
 		count++
 
-		// STEP 2.1: full batch — flush and start over (nil, so
+		// STEP 1.1: full batch — flush and start over (nil, so
 		// the old backing arrays go to the GC)
 		if count%batchSize == 0 {
-			if err := executeBatchNodeAnnouncements(tx, placeholders, values); err != nil {
+			if err := executeBatchNodeAnnouncements(db, placeholders, values); err != nil {
 				return err
 			}
 			values = nil
@@ -314,11 +290,10 @@ func SendNodeAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 	}
 
 
-	// STEP 3: the tail batch (under batchSize rows). The
-	// `err :=` here is the shadowing described in the header
-	// ======================================================
+	// STEP 2: the tail batch (under batchSize rows)
+	// =============================================
 	if len(values) > 0 {
-		if err := executeBatchNodeAnnouncements(tx, placeholders, values); err != nil {
+		if err := executeBatchNodeAnnouncements(db, placeholders, values); err != nil {
 			return err
 		}
 	}
@@ -340,13 +315,14 @@ func SendNodeAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 //
 // Up to batchSize node rows in one statement. On a key hit
 // (same node_id, alias, rgb_color) json_data — addresses
-// and timestamp — is overwritten and last_seen bumped.
+// and timestamp — is overwritten and last_seen bumped. Own
+// autocommit transaction, locks released on return.
 //
 // Used by:
 //   - SendNodeAnnouncements (above) — mid-walk and tail
 // -----------------------------------------------------------
 
-func executeBatchNodeAnnouncements(tx *sql.Tx, placeholders []string, values []interface{}) error {
+func executeBatchNodeAnnouncements(db *sql.DB, placeholders []string, values []interface{}) error {
 	query := `INSERT INTO node_announcements 
 		(node_id, alias, rgb_color, json_data, first_seen, last_seen) 
 		VALUES ` + strings.Join(placeholders, ",") + ` 
@@ -356,7 +332,7 @@ func executeBatchNodeAnnouncements(tx *sql.Tx, placeholders []string, values []i
 		json_data = VALUES(json_data),
 		last_seen = NOW()`
 
-	_, err := tx.Exec(query, values...)
+	_, err := db.Exec(query, values...)
 	if err != nil {
 		return fmt.Errorf("failed to execute batch insert: %w", err)
 	}
@@ -391,31 +367,15 @@ func SendNodeAddresses(graph models.ChannelGraph, db *sql.DB) error {
 	log.Printf("Importing node addresses to MySQL")
 
 
-	// STEP 1: one transaction for the whole import; the defer
-	// decides commit vs rollback from the outer err — see the
-	// file header for the shadowing bug
-	// =======================================================
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		} else {
-			tx.Commit()
-		}
-	}()
-
-
-	// STEP 2: walk the graph, collecting one placeholder group
-	// and its values per row, flushing every batchSize rows
+	// STEP 1: walk the graph, collecting one placeholder group
+	// and its values per row, flushing every batchSize rows —
+	// each flush commits on its own
 	// ========================================================
 	var values []interface{}
 	var placeholders []string
 	count := 0
 
-	err = graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
+	err := graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
 		node := nodeTx.Node()
 
 		for _, addr := range node.Addresses {
@@ -438,10 +398,10 @@ func SendNodeAddresses(graph models.ChannelGraph, db *sql.DB) error {
 
 			count++
 
-			// STEP 2.1: full batch — flush and start over (nil, so
+			// STEP 1.1: full batch — flush and start over (nil, so
 			// the old backing arrays go to the GC)
 			if count%batchSize == 0 {
-				if err := executeBatchNodeAddresses(tx, placeholders, values); err != nil {
+				if err := executeBatchNodeAddresses(db, placeholders, values); err != nil {
 					return err
 				}
 				values = nil
@@ -457,11 +417,10 @@ func SendNodeAddresses(graph models.ChannelGraph, db *sql.DB) error {
 	}
 
 
-	// STEP 3: the tail batch (under batchSize rows). The
-	// `err :=` here is the shadowing described in the header
-	// ======================================================
+	// STEP 2: the tail batch (under batchSize rows)
+	// =============================================
 	if len(values) > 0 {
-		if err := executeBatchNodeAddresses(tx, placeholders, values); err != nil {
+		if err := executeBatchNodeAddresses(db, placeholders, values); err != nil {
 			return err
 		}
 	}
@@ -483,13 +442,14 @@ func SendNodeAddresses(graph models.ChannelGraph, db *sql.DB) error {
 //
 // Up to batchSize address rows in one statement. The UPDATE
 // branch re-sets address and port to the values that just
-// matched the key, so only last_seen actually changes.
+// matched the key, so only last_seen actually changes. Own
+// autocommit transaction, locks released on return.
 //
 // Used by:
 //   - SendNodeAddresses (above) — mid-walk and tail
 // -----------------------------------------------------------
 
-func executeBatchNodeAddresses(tx *sql.Tx, placeholders []string, values []interface{}) error {
+func executeBatchNodeAddresses(db *sql.DB, placeholders []string, values []interface{}) error {
 	query := `INSERT INTO node_addresses 
 		(node_id, address, port, first_seen, last_seen) 
 		VALUES ` + strings.Join(placeholders, ",") + ` 
@@ -498,7 +458,7 @@ func executeBatchNodeAddresses(tx *sql.Tx, placeholders []string, values []inter
 		port = VALUES(port),
 		last_seen = NOW()`
 
-	_, err := tx.Exec(query, values...)
+	_, err := db.Exec(query, values...)
 	if err != nil {
 		return fmt.Errorf("failed to execute batch insert: %w", err)
 	}

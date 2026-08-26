@@ -45,14 +45,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	// This module
 	"lnd-dbreader/db"
-	"lnd-dbreader/models"
 
 	// MySQL driver (registers itself) and LND's graph store
 	_ "github.com/go-sql-driver/mysql"
@@ -172,8 +170,8 @@ func getEnv(key, defaultValue string) string {
 // Builds Config from the environment. SYNC_INTERVAL_MINUTES
 // is parsed by appending "m" and handing the result to
 // time.ParseDuration, so "1.5" works too; anything that does
-// not parse silently falls back to defaultSyncInterval —
-// there is no log line for a typo.
+// not parse falls back to defaultSyncInterval with a warning
+// in the log.
 //
 // Used by:
 //   - main (below)
@@ -185,6 +183,8 @@ func loadConfig() *Config {
 
 	if intervalMinutes, err := time.ParseDuration(syncIntervalStr + "m"); err == nil {
 		syncInterval = intervalMinutes
+	} else {
+		log.Printf("Warning: SYNC_INTERVAL_MINUTES=%q is not a number, using %v", syncIntervalStr, defaultSyncInterval)
 	}
 
 	return &Config{
@@ -256,16 +256,7 @@ func copyDatabase(src, dst string) error {
 // One full sync: copy → open through LND → three imports.
 // Every resource is released by a defer, in reverse order
 // of acquisition, and the copy is removed LAST — after the
-// graph, the channeldb and the bbolt backend are closed.
-//
-// Known dead machinery: dbInstance (models.Open) never
-// points at the copy. models.Open hardcodes the file name
-// "channel.db" inside filepath.Dir(tempDatabasePath), i.e.
-// /tmp/channel.db, which does not exist — kvdb CREATES an
-// empty one on the first sync and reopens it on every later
-// one. Nothing reads dbInstance; only its Close runs. The
-// graph itself is built on kvdbBackend, which does open the
-// copy. Left as is in the restyle.
+// graph and the bbolt backend are closed.
 //
 // Used by:
 //   - main (below) — the initial sync and every tick
@@ -304,20 +295,7 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 		}
 	}()
 
-	// STEP 2.1: the channeldb handle — NOT the copy, see the
-	// banner; opened and closed for nothing
-	dbDir := filepath.Dir(tempDatabasePath)
-	dbInstance, err := models.Open(dbDir)
-	if err != nil {
-		return fmt.Errorf("failed to open LND database: %w", err)
-	}
-	defer func() {
-		if err := dbInstance.Close(); err != nil {
-			log.Printf("Warning: Failed to close database instance: %v", err)
-		}
-	}()
-
-	// STEP 2.2: the graph over kvdbBackend, graph cache on —
+	// STEP 2.1: the graph over kvdbBackend, graph cache on —
 	// Start() then loads the whole graph into memory
 	graphConfig := &graphdb.Config{
 		KVDB: kvdbBackend,
@@ -336,7 +314,7 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 		return fmt.Errorf("failed to create channel graph: %w", err)
 	}
 
-	// STEP 2.3: Start populates the cache; Stop is deferred
+	// STEP 2.2: Start populates the cache; Stop is deferred
 	if err := graph.Start(); err != nil {
 		return fmt.Errorf("failed to start channel graph: %w", err)
 	}
@@ -357,9 +335,9 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 	}
 
 
-	// STEP 4: the three imports, in order. Each is its own
-	// transaction, so a failure in one leaves the earlier ones
-	// committed and skips the later ones
+	// STEP 4: the three imports, in order. Every batch commits
+	// on its own (see announcements.go), so a failure keeps
+	// what was imported so far and skips the later importers
 	// ========================================================
 	log.Printf("Processing channel announcements")
 	if err := db.SendChannelAnnouncements(graph, mysqlDB); err != nil {
@@ -428,9 +406,7 @@ func setupGracefulShutdown() (context.Context, context.CancelFunc) {
 //
 // sql.Open plus a Ping, because Open alone never touches the
 // network. The DSN is user:password@tcp(host:port)/db with
-// no parameters — no parseTime, no TLS. The local variable
-// `db` shadows the imported package db inside this function
-// only.
+// no parameters — no parseTime, no TLS.
 //
 // Used by:
 //   - main (below)
@@ -440,17 +416,17 @@ func connectToMySQL(config MySQLConfig) (*sql.DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s",
 		config.User, config.Password, config.Host, config.Port, config.Database)
 
-	db, err := sql.Open("mysql", dsn)
+	conn, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to MySQL: %w", err)
 	}
 
-	if err := db.Ping(); err != nil {
-		db.Close()
+	if err := conn.Ping(); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("failed to ping MySQL: %w", err)
 	}
 
-	return db, nil
+	return conn, nil
 }
 
 

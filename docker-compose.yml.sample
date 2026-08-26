@@ -60,7 +60,7 @@ services:
     restart: unless-stopped
 
 
-
+  # LND Daemon autohealer
   lnd-dbreader-autoheal:
     container_name: lnd-dbreader-autoheal
     image: willfarrell/autoheal:1.2.0
@@ -165,8 +165,9 @@ services:
   # Database browser to view the results
   lnd-dbreader-dbgate:
     container_name: lnd-dbreader-dbgate
-    image: dbgate/dbgate:6.1.6-alpine
-    read_only: false
+    image: dbgate/dbgate:7.2.3-alpine
+    user: root
+    read_only: true
     environment:
       WEB_ROOT: /dbgate
 
@@ -198,15 +199,15 @@ services:
   # ------------------------------------------------------------
   #                     Zabbix monitoring
   # ------------------------------------------------------------
-  # OPTIONAL: Zabbix service to monitor the data collection
-  # # lnd-dbreader-zabbix:
+  # # OPTIONAL: Zabbix service to monitor the data collection
+  # lnd-dbreader-zabbix:
 
   #   # Official image
   #   image: vuknf/lnd-dbreader-zabbix:latest
 
-  #   # Self-built
-  #   container_name: lnd-dbreader-zabbix
-  #   build: ./zabbix
+  #   # # Self-built
+  #   # container_name: lnd-dbreader-zabbix
+  #   # build: ./zabbix
 
   #   read_only: true
   #   environment:

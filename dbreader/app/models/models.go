@@ -1,19 +1,35 @@
-/*
-Package models provides data structures and utilities for working with LND v0.19.1 graph data.
+// -----------------------------------------------------------
+//  [*] models — LND v0.19.1 types, wrapped for JSON and MySQL
+//
+//  Thin layer over LND's own packages: aliases for the graph
+//  model types, two wrappers that give lnwire announcements
+//  a flat JSON shape (hex strings, "#rrggbb", host/port
+//  addresses) for the json_data columns, and Open, which
+//  builds a channeldb over a bbolt backend. The ChannelGraph
+//  interface lives next door in graph.go.
+//
+//  Split into:
+//
+//    ChannelEdgeInfo, ChannelEdgePolicy,
+//    LightningNode, DB, ReadTx     — type aliases
+//    CustomNodeAnnouncement        — node → JSON
+//    CustomAddress                 — one address in that JSON
+//    CustomChannelAnnouncement     — channel → JSON
+//    Open                          — channeldb over bbolt
+// -----------------------------------------------------------
 
-This package contains custom wrappers around LND's native data types to provide
-JSON serialization and database compatibility. It handles the new graph database
-architecture introduced in LND v0.19.1.
-*/
+
 package models
 
 import (
+	// Standard library
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
 
+	// btcd / btcwallet / LND
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -22,7 +38,27 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// Type aliases for LND v0.19.1 graph database models
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// type aliases
+// -----------------------------------------------------------
+//
+// = aliases, not new types, so LND values pass straight
+// through. Only ChannelEdgeInfo and ChannelEdgePolicy are
+// used (the ForEachChannel callback signature in db);
+// LightningNode, DB and ReadTx have no consumer at the
+// moment.
+//
+// Used by:
+//   - db/announcements.go SendChannelAnnouncements
+// -----------------------------------------------------------
+
 type (
 	ChannelEdgeInfo   = models.ChannelEdgeInfo
 	ChannelEdgePolicy = models.ChannelEdgePolicy
@@ -31,43 +67,177 @@ type (
 	ReadTx            = walletdb.ReadTx
 )
 
-// CustomNodeAnnouncement wraps lnwire.NodeAnnouncement with custom JSON serialization
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomNodeAnnouncement
+// -----------------------------------------------------------
+//
+// lnwire.NodeAnnouncement by embedding, so every field is
+// reachable, plus MarshalJSON below, which replaces the
+// wire encoding with the flat JSON stored in
+// node_announcements.json_data.
+//
+// Used by:
+//   - db/announcements.go SendNodeAnnouncements
+// -----------------------------------------------------------
+
 type CustomNodeAnnouncement struct {
 	lnwire.NodeAnnouncement
 }
 
-// CustomAddress represents a network address with JSON-friendly format
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomAddress
+// -----------------------------------------------------------
+//
+// One entry of the "addresses" array in the node JSON. Type
+// is "tcp" when host:port split cleanly, otherwise "unknown"
+// with the raw string in Address and Port 0 — the JSON does
+// not tell Tor from clearnet.
+//
+// Used by:
+//   - CustomNodeAnnouncement.MarshalJSON (below)
+// -----------------------------------------------------------
+
 type CustomAddress struct {
 	Type    string `json:"type"`
 	Address string `json:"address"`
 	Port    uint16 `json:"port"`
 }
 
-// CustomChannelAnnouncement wraps lnwire.ChannelAnnouncement1 with custom JSON serialization
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomChannelAnnouncement
+// -----------------------------------------------------------
+//
+// *lnwire.ChannelAnnouncement1 by embedding (a pointer, so
+// the wrapper copies cheaply) plus MarshalJSON. The four
+// forwarding methods below are redundant — the embedded
+// pointer already promotes SCID, GetChainHash and the two
+// Node*KeyBytes — and stay only because a restyle changes
+// no code.
+//
+// Used by:
+//   - db/announcements.go SendChannelAnnouncements
+// -----------------------------------------------------------
+
 type CustomChannelAnnouncement struct {
 	*lnwire.ChannelAnnouncement1
 }
 
-// Interface compliance methods for CustomChannelAnnouncement
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomChannelAnnouncement.SCID
+// -----------------------------------------------------------
+//
+// Used by:
+//   - db/announcements.go SendChannelAnnouncements
+//   - CustomChannelAnnouncement.MarshalJSON (below)
+// -----------------------------------------------------------
+
 func (c CustomChannelAnnouncement) SCID() lnwire.ShortChannelID {
 	return c.ChannelAnnouncement1.SCID()
 }
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomChannelAnnouncement.GetChainHash
+// -----------------------------------------------------------
+//
+// Used by:
+//   - CustomChannelAnnouncement.MarshalJSON (below)
+// -----------------------------------------------------------
 
 func (c CustomChannelAnnouncement) GetChainHash() chainhash.Hash {
 	return c.ChannelAnnouncement1.GetChainHash()
 }
 
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomChannelAnnouncement.Node1KeyBytes
+// -----------------------------------------------------------
+//
+// Used by:
+//   - db/announcements.go SendChannelAnnouncements
+//   - CustomChannelAnnouncement.MarshalJSON (below)
+// -----------------------------------------------------------
+
 func (c CustomChannelAnnouncement) Node1KeyBytes() [33]byte {
 	return c.ChannelAnnouncement1.Node1KeyBytes()
 }
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomChannelAnnouncement.Node2KeyBytes
+// -----------------------------------------------------------
+//
+// Used by:
+//   - db/announcements.go SendChannelAnnouncements
+//   - CustomChannelAnnouncement.MarshalJSON (below)
+// -----------------------------------------------------------
 
 func (c CustomChannelAnnouncement) Node2KeyBytes() [33]byte {
 	return c.ChannelAnnouncement1.Node2KeyBytes()
 }
 
-// MarshalJSON provides custom JSON serialization for NodeAnnouncement
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomNodeAnnouncement.MarshalJSON
+// -----------------------------------------------------------
+//
+// The node JSON: node_id (hex), alias, addresses (a
+// CustomAddress per entry, in LND's order), timestamp (unix
+// seconds, uint32) and rgb_color as "#rrggbb". Features and
+// extra opaque data are NOT emitted. A port that fails
+// ParseUint becomes 0 — the error is dropped.
+//
+// Used by:
+//   - encoding/json — via json.Marshal in
+//     db/announcements.go SendNodeAnnouncements
+// -----------------------------------------------------------
+
 func (c CustomNodeAnnouncement) MarshalJSON() ([]byte, error) {
-	// Parse addresses into structured format
+	// SplitHostPort decides tcp vs unknown — see CustomAddress
 	customAddresses := make([]CustomAddress, len(c.Addresses))
 	for i, addr := range c.Addresses {
 		host, port, err := net.SplitHostPort(addr.String())
@@ -101,16 +271,36 @@ func (c CustomNodeAnnouncement) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// MarshalJSON provides custom JSON serialization for ChannelAnnouncement
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// CustomChannelAnnouncement.MarshalJSON
+// -----------------------------------------------------------
+//
+// The channel JSON, all hex strings: chain_hash is emitted
+// byte-REVERSED, the same digits chainhash.Hash.String()
+// prints; short_channel_id is the "block x tx x out" form,
+// unlike the uint64 in the short_channel_id column;
+// extra_opaque_data is omitted when empty.
+//
+// Used by:
+//   - encoding/json — via json.Marshal in
+//     db/announcements.go SendChannelAnnouncements
+// -----------------------------------------------------------
+
 func (c CustomChannelAnnouncement) MarshalJSON() ([]byte, error) {
-	// Convert chain hash to little-endian format
+	// Reversed by hand — the same digits Hash.String() prints
 	chainHash := c.GetChainHash()
 	var chainHashLE [32]byte
 	for i := 0; i < 32; i++ {
 		chainHashLE[i] = chainHash[31-i]
 	}
 
-	// Get node keys
 	node1Bytes := c.Node1KeyBytes()
 	node2Bytes := c.Node2KeyBytes()
 
@@ -133,9 +323,30 @@ func (c CustomChannelAnnouncement) MarshalJSON() ([]byte, error) {
 	})
 }
 
-// Open opens the channeldb at the specified directory using LND v0.19.1 architecture
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Open
+// -----------------------------------------------------------
+//
+// A channeldb over a fresh bbolt backend at dbDir/channel.db
+// — the file NAME is hardcoded here, only the directory is
+// a parameter. kvdb.GetBoltBackend creates the file when it
+// is missing rather than failing, which is how main.go ends
+// up with an empty /tmp/channel.db (see the
+// processLNDDatabase banner there). The backend is closed
+// again if channeldb refuses it.
+//
+// Used by:
+//   - main.go processLNDDatabase — STEP 2.1
+// -----------------------------------------------------------
+
 func Open(dbDir string) (*channeldb.DB, error) {
-	// Create kvdb backend
 	backend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            dbDir,
 		DBFileName:        "channel.db",
@@ -148,10 +359,9 @@ func Open(dbDir string) (*channeldb.DB, error) {
 		return nil, fmt.Errorf("failed to create kvdb backend at %s: %w", dbDir, err)
 	}
 
-	// Create channeldb with the backend
 	db, err := channeldb.CreateWithBackend(backend)
 	if err != nil {
-		backend.Close() // Clean up backend on error
+		backend.Close()
 		return nil, fmt.Errorf("failed to create channeldb with backend at %s: %w", dbDir, err)
 	}
 

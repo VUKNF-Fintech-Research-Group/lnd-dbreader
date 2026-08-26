@@ -1,29 +1,43 @@
-/*
-LND Database Reader v0.19.1
+// -----------------------------------------------------------
+//  [*] dbreader — LND channel graph → MySQL, on a timer
+//
+//  The whole service in one process: copy the node's
+//  channel.db aside, open the copy through LND's own graph
+//  package and upsert every channel, node and address into
+//  MySQL — once at start, then every SYNC_INTERVAL_MINUTES.
+//  The live channel.db is never opened: bbolt takes an
+//  exclusive lock and the LND container next door holds it.
+//
+//  Environment (every variable optional, defaults in
+//  loadConfig):
+//    MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD,
+//    MYSQL_DATABASE         — the target database
+//    LND_DB_PATH            — the node's channel.db
+//    SYNC_INTERVAL_MINUTES  — minutes between syncs
+//
+//  A failed sync never stops the loop: it is logged and the
+//  next tick tries again. Tables are (re)created on EVERY
+//  sync with IF NOT EXISTS, so a wiped database heals
+//  itself. go.mod pins LND v0.19.1-beta — the graph API
+//  moved in 0.19 and the models package wraps that
+//  version's types.
+//
+//  Split into (main last):
+//
+//    Config, MySQLConfig    — the parsed environment
+//    getEnv, loadConfig     — env → Config
+//    copyDatabase           — the lock-avoiding file copy
+//    processLNDDatabase     — one full sync
+//    setupGracefulShutdown  — SIGINT/SIGTERM → ctx cancel
+//    connectToMySQL         — open + ping
+//    main                   — initial sync, then the ticker
+// -----------------------------------------------------------
 
-A service that continuously reads Lightning Network Daemon (LND) channel graph data
-and synchronizes it to a MySQL database. This application is compatible with LND v0.19.1-beta
-and handles the new graph database architecture introduced in that version.
 
-Features:
-- Continuous sync with configurable intervals
-- Graceful shutdown handling
-- Database lock avoidance through file copying
-- Robust error handling and recovery
-- Batch processing for performance
-
-Environment Variables:
-- MYSQL_HOST: MySQL server hostname (default: lnd-dbreader-mysql)
-- MYSQL_PORT: MySQL server port (default: 3306)
-- MYSQL_USER: MySQL username (default: lnd-dbreader)
-- MYSQL_PASSWORD: MySQL password (default: lnd-dbreader)
-- MYSQL_DATABASE: MySQL database name (default: lnd-dbreader)
-- LND_DB_PATH: Path to LND channel.db file (default: /data/channel.db)
-- SYNC_INTERVAL_MINUTES: Sync interval in minutes (default: 30)
-*/
 package main
 
 import (
+	// Standard library
 	"context"
 	"database/sql"
 	"fmt"
@@ -36,39 +50,80 @@ import (
 	"syscall"
 	"time"
 
+	// This module
 	"lnd-dbreader/db"
 	"lnd-dbreader/models"
 
+	// MySQL driver (registers itself) and LND's graph store
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/lightningnetwork/lnd/kvdb"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/kvdb"
 )
 
 const (
-	// Application metadata
+	// Only ever printed — the startup log line
 	appName    = "LND Database Reader"
 	appVersion = "v0.19.1"
-	
-	// Default configuration values
+
+	// Sync cadence when SYNC_INTERVAL_MINUTES is unset or
+	// unparsable; bbolt open timeout for the copied file
 	defaultSyncInterval = 30 * time.Minute
 	defaultDBTimeout    = 10 * time.Second
-	
-	// Graph configuration
+
+	// Cache sizes handed to LND's graphdb — compare its own
+	// DefaultRejectCacheSize / DefaultChannelCacheSize
 	defaultRejectCacheSize  = 1000
 	defaultChannelCacheSize = 20000
-	
-	// Temporary file path for database copying
+
+	// Where the live channel.db is copied before opening;
+	// removed after every sync
 	tempDatabasePath = "/tmp/channel_copy.db"
 )
 
-// Config holds the application configuration
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// Config
+// -----------------------------------------------------------
+//
+// Everything the service reads from the environment, parsed
+// once by loadConfig. MySQLConfig is nested so the DB half
+// can be handed to connectToMySQL on its own.
+//
+// Used by:
+//   - loadConfig, main (below)
+// -----------------------------------------------------------
+
 type Config struct {
 	MySQL        MySQLConfig
 	LNDDBPath    string
 	SyncInterval time.Duration
 }
 
-// MySQLConfig holds MySQL connection configuration
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// MySQLConfig
+// -----------------------------------------------------------
+//
+// Host/port/user/password/database as strings straight from
+// the environment — Port is never parsed, only formatted
+// back into the DSN.
+//
+// Used by:
+//   - Config (above), connectToMySQL, main (below)
+// -----------------------------------------------------------
+
 type MySQLConfig struct {
 	Host     string
 	Port     string
@@ -77,7 +132,25 @@ type MySQLConfig struct {
 	Database string
 }
 
-// getEnv retrieves an environment variable or returns a default value
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// getEnv
+// -----------------------------------------------------------
+//
+// os.Getenv with a default. An EMPTY value counts as unset:
+// `MYSQL_PASSWORD=` in compose yields the default password,
+// not an empty one.
+//
+// Used by:
+//   - loadConfig (below)
+// -----------------------------------------------------------
+
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -85,11 +158,31 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// loadConfig loads configuration from environment variables
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// loadConfig
+// -----------------------------------------------------------
+//
+// Builds Config from the environment. SYNC_INTERVAL_MINUTES
+// is parsed by appending "m" and handing the result to
+// time.ParseDuration, so "1.5" works too; anything that does
+// not parse silently falls back to defaultSyncInterval —
+// there is no log line for a typo.
+//
+// Used by:
+//   - main (below)
+// -----------------------------------------------------------
+
 func loadConfig() *Config {
 	syncIntervalStr := getEnv("SYNC_INTERVAL_MINUTES", "30")
 	syncInterval := defaultSyncInterval
-	
+
 	if intervalMinutes, err := time.ParseDuration(syncIntervalStr + "m"); err == nil {
 		syncInterval = intervalMinutes
 	}
@@ -107,7 +200,28 @@ func loadConfig() *Config {
 	}
 }
 
-// copyDatabase creates a copy of the source database file to avoid locking issues
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// copyDatabase
+// -----------------------------------------------------------
+//
+// Plain io.Copy of the live channel.db to tempDatabasePath.
+// Nothing locks out the writer: LND may be mid-transaction,
+// in which case the copy can be inconsistent and the bbolt
+// open in processLNDDatabase fails — that sync errors out
+// and the next tick copies again. os.Create truncates, so a
+// leftover copy is never appended to.
+//
+// Used by:
+//   - processLNDDatabase (below)
+// -----------------------------------------------------------
+
 func copyDatabase(src, dst string) error {
 	sourceFile, err := os.Open(src)
 	if err != nil {
@@ -128,16 +242,46 @@ func copyDatabase(src, dst string) error {
 	return nil
 }
 
-// processLNDDatabase handles a single iteration of reading and importing LND data
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// processLNDDatabase
+// -----------------------------------------------------------
+//
+// One full sync: copy → open through LND → three imports.
+// Every resource is released by a defer, in reverse order
+// of acquisition, and the copy is removed LAST — after the
+// graph, the channeldb and the bbolt backend are closed.
+//
+// Known dead machinery: dbInstance (models.Open) never
+// points at the copy. models.Open hardcodes the file name
+// "channel.db" inside filepath.Dir(tempDatabasePath), i.e.
+// /tmp/channel.db, which does not exist — kvdb CREATES an
+// empty one on the first sync and reopens it on every later
+// one. Nothing reads dbInstance; only its Close runs. The
+// graph itself is built on kvdbBackend, which does open the
+// copy. Left as is in the restyle.
+//
+// Used by:
+//   - main (below) — the initial sync and every tick
+// -----------------------------------------------------------
+
 func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 	log.Printf("Starting LND database processing")
 
-	// Copy database to temporary location to avoid lock issues
+
+	// STEP 1: copy the live file aside; the defer that removes
+	// the copy is registered first, so it runs last
+	// ========================================================
 	if err := copyDatabase(lndDbPath, tempDatabasePath); err != nil {
 		return fmt.Errorf("failed to copy database: %w", err)
 	}
 
-	// Ensure temp file is cleaned up
 	defer func() {
 		if err := os.Remove(tempDatabasePath); err != nil {
 			log.Printf("Warning: Failed to remove temporary database file: %v", err)
@@ -146,7 +290,10 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 
 	log.Printf("Database copied successfully")
 
-	// Initialize LND components
+
+	// STEP 2: open the copy read-only as a bbolt backend and
+	// build LND's graph on top of it
+	// ======================================================
 	kvdbBackend, err := kvdb.Open(kvdb.BoltBackendName, tempDatabasePath, true, defaultDBTimeout, false)
 	if err != nil {
 		return fmt.Errorf("failed to open LND database backend: %w", err)
@@ -157,7 +304,8 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 		}
 	}()
 
-	// Create channeldb instance
+	// STEP 2.1: the channeldb handle — NOT the copy, see the
+	// banner; opened and closed for nothing
 	dbDir := filepath.Dir(tempDatabasePath)
 	dbInstance, err := models.Open(dbDir)
 	if err != nil {
@@ -169,7 +317,8 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 		}
 	}()
 
-	// Create channel graph instance
+	// STEP 2.2: the graph over kvdbBackend, graph cache on —
+	// Start() then loads the whole graph into memory
 	graphConfig := &graphdb.Config{
 		KVDB: kvdbBackend,
 		KVStoreOpts: []graphdb.KVStoreOptionModifier{
@@ -187,7 +336,7 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 		return fmt.Errorf("failed to create channel graph: %w", err)
 	}
 
-	// Start the graph
+	// STEP 2.3: Start populates the cache; Stop is deferred
 	if err := graph.Start(); err != nil {
 		return fmt.Errorf("failed to start channel graph: %w", err)
 	}
@@ -199,12 +348,19 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 
 	log.Printf("Importing data to MySQL")
 
-	// Initialize database tables
+
+	// STEP 3: make sure the MySQL tables exist — every sync, so
+	// a wiped database heals itself
+	// =========================================================
 	if err := db.InitializeDatabaseTables(mysqlDB); err != nil {
 		return fmt.Errorf("failed to initialize database tables: %w", err)
 	}
 
-	// Import data in sequence
+
+	// STEP 4: the three imports, in order. Each is its own
+	// transaction, so a failure in one leaves the earlier ones
+	// committed and skips the later ones
+	// ========================================================
 	log.Printf("Processing channel announcements")
 	if err := db.SendChannelAnnouncements(graph, mysqlDB); err != nil {
 		return fmt.Errorf("failed to import channel announcements: %w", err)
@@ -224,10 +380,29 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 	return nil
 }
 
-// setupGracefulShutdown sets up signal handling for graceful shutdown
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// setupGracefulShutdown
+// -----------------------------------------------------------
+//
+// A context cancelled on SIGINT/SIGTERM (docker stop). Only
+// the ticker loop in main watches it: a signal during a
+// running sync waits for that sync to finish — nothing
+// inside processLNDDatabase checks ctx.
+//
+// Used by:
+//   - main (below)
+// -----------------------------------------------------------
+
 func setupGracefulShutdown() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -240,9 +415,29 @@ func setupGracefulShutdown() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-// connectToMySQL establishes and tests MySQL connection
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// connectToMySQL
+// -----------------------------------------------------------
+//
+// sql.Open plus a Ping, because Open alone never touches the
+// network. The DSN is user:password@tcp(host:port)/db with
+// no parameters — no parseTime, no TLS. The local variable
+// `db` shadows the imported package db inside this function
+// only.
+//
+// Used by:
+//   - main (below)
+// -----------------------------------------------------------
+
 func connectToMySQL(config MySQLConfig) (*sql.DB, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", 
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s",
 		config.User, config.Password, config.Host, config.Port, config.Database)
 
 	db, err := sql.Open("mysql", dsn)
@@ -258,19 +453,46 @@ func connectToMySQL(config MySQLConfig) (*sql.DB, error) {
 	return db, nil
 }
 
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// main
+// -----------------------------------------------------------
+//
+// Config → MySQL → initial sync → ticker. Sync #1 runs
+// immediately, later ones every SyncInterval, numbered by
+// syncCount for the log. An error never ends the loop. The
+// separator lines go to stdout via fmt, everything else to
+// stderr via log — docker logs shows both.
+//
+// Used by:
+//   - Dockerfile — CMD ["./lnd-dbreader"], the
+//     lnd-dbreader-dbreader compose service
+// -----------------------------------------------------------
+
 func main() {
 	log.Printf("Starting %s %s", appName, appVersion)
 
-	// Load configuration
+
+	// STEP 1: configuration, printed with the password masked
+	// =======================================================
 	config := loadConfig()
-	
+
 	log.Printf("Configuration:")
 	log.Printf("  LND DB Path: %s", config.LNDDBPath)
-	log.Printf("  MySQL: %s:***@tcp(%s:%s)/%s", 
+	log.Printf("  MySQL: %s:***@tcp(%s:%s)/%s",
 		config.MySQL.User, config.MySQL.Host, config.MySQL.Port, config.MySQL.Database)
 	log.Printf("  Sync Interval: %v", config.SyncInterval)
 
-	// Connect to MySQL
+
+	// STEP 2: MySQL — fatal if unreachable; the container's
+	// restart policy is the retry
+	// =====================================================
 	mysqlDB, err := connectToMySQL(config.MySQL)
 	if err != nil {
 		log.Fatalf("MySQL connection failed: %v", err)
@@ -285,11 +507,15 @@ func main() {
 
 	log.Printf("MySQL connection established successfully")
 
-	// Set up graceful shutdown
+
+	// STEP 3: the shutdown context
+	// ============================
 	ctx, cancel := setupGracefulShutdown()
 	defer cancel()
 
-	// Run initial sync
+
+	// STEP 4: sync #1, right away
+	// ===========================
 	separator := strings.Repeat("=", 80)
 	fmt.Printf("\n%s\n", separator)
 	fmt.Printf("INITIAL SYNC - %s\n", time.Now().Format("2006-01-02 15:04:05"))
@@ -302,7 +528,11 @@ func main() {
 		log.Printf("✅ Initial sync completed successfully!")
 	}
 
-	// Start continuous sync loop
+
+	// STEP 5: the ticker loop until ctx is cancelled. A sync
+	// longer than the interval does not pile up — Ticker drops
+	// ticks nobody is receiving
+	// ========================================================
 	ticker := time.NewTicker(config.SyncInterval)
 	defer ticker.Stop()
 

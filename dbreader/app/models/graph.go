@@ -1,21 +1,49 @@
-/*
-Package models provides interfaces for working with LND v0.19.1 graph database.
+// -----------------------------------------------------------
+//  [*] models — the ChannelGraph interface (graph.go)
+//
+//  The one thing db/ needs from LND's graph store: two
+//  walkers. An interface rather than *graphdb.ChannelGraph
+//  so the importers accept anything that walks like the
+//  graph — in production it is the graph main.go builds.
+//  Sibling of models.go, which wraps the row types.
+// -----------------------------------------------------------
 
-This file defines the ChannelGraph interface that abstracts the graph database
-operations for compatibility with different LND versions.
-*/
+
 package models
 
 import (
-	"github.com/lightningnetwork/lnd/graph/db/models"
+	// LND
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 )
 
-// ChannelGraph defines the interface for iterating over channel graph data
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// ChannelGraph
+// -----------------------------------------------------------
+//
+// Satisfied by *graphdb.ChannelGraph (LND v0.19.1). The
+// ForEachChannel callback receives the edge plus BOTH
+// directed policies; the ForEachNode callback receives a
+// node read-transaction and calls Node() on it. Both walks
+// stop at the first error the callback returns.
+//
+// Used by:
+//   - db/announcements.go — the parameter of all three
+//     Send* importers; main.go passes the graph in
+// -----------------------------------------------------------
+
 type ChannelGraph interface {
-	// ForEachChannel iterates over all channels in the graph
+	// The edge, then its two directed policies (nil when LND
+	// has not seen that direction)
 	ForEachChannel(func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error
-	
-	// ForEachNode iterates over all nodes in the graph
+
+	// A read transaction per node — Node() gives the record
 	ForEachNode(func(graphdb.NodeRTx) error) error
 }

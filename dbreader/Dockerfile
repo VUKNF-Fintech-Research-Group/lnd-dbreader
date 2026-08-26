@@ -6,10 +6,13 @@
 #  off so the binary is fully static (the MySQL driver and
 #  LND's bbolt store are pure Go) and runs on musl without
 #  any libc; -s -w strips symbols and DWARF. Alpine rather
-#  than scratch: it brings /tmp — the sync copies channel.db
-#  there — and a shell for `docker exec` when debugging.
-#  The container runs as root on purpose: /data is the LND
-#  node's own graph directory, owned by root.
+#  than scratch: it brings a shell for `docker exec` when
+#  debugging. The image sets no user: compose runs it as
+#  1000:1000 with a read-only root filesystem and a tmpfs
+#  on /tmp — the sync copies channel.db there, so /tmp must
+#  be writable and large enough for the graph (0.5 GB and
+#  growing). /data is the LND node's graph directory, owned
+#  by 1000 like everything under _DATA, mounted read-only.
 # ------------------------------------------------------------
 
 

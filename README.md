@@ -105,7 +105,7 @@ All containers live in one Docker Compose stack, named `lnd-dbreader-<service>`:
 | `lnd-dbreader-endpoint` | `caddy:2.11-alpine` | The only published port (80). Serves the dashboard at `/`, proxies `/dbgate/`, and serves `_DATA/exporter` read-only at `/rawdata/` |
 | `lnd-dbreader-lnd` | `lightninglabs/lnd:v0.19.3-beta` | Graph-only LND node: neutrino backend, fixed peer list, `--noseedbackup` (never holds funds). Runs as user 1000 on a read-only filesystem with its data at `/lnd`. Started by `lnd/start-lnd.sh` |
 | `lnd-dbreader-autoheal` | `willfarrell/autoheal:1.2.0` | Restarts the LND container when its healthcheck (synced to chain and at least one peer) fails |
-| `lnd-dbreader-dbreader` | `vuknf/lnd-dbreader-dbreader` | The Go sync service — this repository's `dbreader/` |
+| `lnd-dbreader-dbreader` | `vuknf/lnd-dbreader-dbreader` | The Go sync service — this repository's `dbreader/`. Runs as user 1000 on a read-only filesystem; `/tmp` is a tmpfs because every sync copies `channel.db` there |
 | `lnd-dbreader-mysql` | `mysql:8.4.0` | The database. Config in `mysql/my.cnf`, data in `_DATA/mysql` |
 | `lnd-dbreader-exporter` | `vuknf/lnd-dbreader-exporter` | Python: writes `_DATA/exporter/lnd-dbreader.json.gz` every 12 hours |
 | `lnd-dbreader-dbgate` | `dbgate/dbgate:7.2.3-alpine` | Web database browser, reachable through the endpoint only |
@@ -119,7 +119,7 @@ The LND node's data directory is `_DATA/lnd`, mounted at `/lnd` inside the LND c
 
 Every `SYNC_INTERVAL_MINUTES` (and once at start-up) dbreader:
 
-1. **Copies** the live `channel.db` to `/tmp/channel_copy.db`. bbolt holds an exclusive lock on the file LND has open, so the live file is never touched. If LND was mid-write the copy can be inconsistent — that sync fails and the next one copies again.
+1. **Copies** the live `channel.db` to `/tmp/channel_copy.db` (a tmpfs — the copy lives in RAM, ~0.5 GB today). bbolt holds an exclusive lock on the file LND has open, so the live file is never touched; the graph directory is mounted read-only. If LND was mid-write the copy can be inconsistent — that sync fails and the next one copies again.
 2. **Opens the copy** read-only through LND's `kvdb` and `graph/db` packages, with the graph cache enabled.
 3. **Creates the tables** if they are missing (`CREATE TABLE IF NOT EXISTS`, every sync — a wiped database heals itself).
 4. **Imports** channel announcements, node announcements and node addresses, in that order. Each importer walks the graph and upserts rows in batches of 5000; every batch is its own autocommit transaction, so a failure keeps what was imported so far and the next sync re-applies the rest (every row is an idempotent upsert).
@@ -270,7 +270,7 @@ lnd-dbreader/
 
 ## 🛠 Development
 
-The sample compose file uses the published images. To build from source, flip the `# Self-built` comment toggles on the `dbreader`, `exporter` or `zabbix` service (`image:` + `build:`), then run `./runUpdateThisStack.sh`. The commented `# Dev` volume line on the dbreader service mounts `./dbreader/app` into the container for live editing.
+The sample compose file uses the published images. To build from source, flip the `# Self-built` comment toggles on the `dbreader`, `exporter` or `zabbix` service (`image:` + `build:`), then run `./runUpdateThisStack.sh`. The commented `# Dev` volume lines on the Python services (exporter, zabbix) mount the source directory over `/app` so edits run without a rebuild; the Go service has no live-edit mode — its image holds only the compiled binary, so a change to `dbreader/app` needs a rebuild.
 
 Nothing is installed on the host: builds run in containers. To vet and build the Go service by hand:
 

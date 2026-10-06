@@ -27,14 +27,14 @@
 //
 //  The story continues in two packages: db/ holds the schema
 //  (initialization.go) and the three importers
-//  (announcements.go), models/ the graph opener (graph.go)
-//  and the JSON shapes of the rows (models.go).
+//  (announcements.go), models/ the whole copy of channel.db
+//  (snapshot.go), the graph opener (graph.go) and the JSON
+//  shapes of the rows (models.go).
 //
 //  Split into (main last):
 //
 //    Config, MySQLConfig    — the parsed environment
 //    getEnv, loadConfig     — env → Config
-//    copyDatabase           — the lock-avoiding file copy
 //    processLNDDatabase     — one full sync
 //    setupGracefulShutdown  — SIGINT/SIGTERM → ctx cancel
 //    connectToMySQL         — open + ping
@@ -49,7 +49,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -85,6 +84,12 @@ const (
 	// Where the live channel.db is copied before opening;
 	// removed after every sync
 	tempDatabasePath = "/tmp/channel_copy.db"
+
+	// Copies per sync before giving up on a whole one, and the
+	// wait between them — LND commits graph updates in
+	// batches, so a quiet half second turns up within a few
+	copyAttempts   = 10
+	copyRetryPause = time.Second
 )
 
 
@@ -217,52 +222,6 @@ func loadConfig() *Config {
 
 
 // -----------------------------------------------------------
-// copyDatabase
-// -----------------------------------------------------------
-//
-// Plain io.Copy of the live channel.db to tempDatabasePath.
-// Nothing locks out the writer: LND may be mid-transaction,
-// in which case the copy can be torn. The read-only open in
-// models.OpenChannelGraph no longer trips over that (the
-// old read-write open rebuilt the freelist and panicked);
-// a torn copy usually fails the walk, that sync errors out
-// and the next tick copies again. A page torn badly enough
-// can still panic bbolt itself — the container's restart
-// policy is the backstop. os.Create truncates, so a
-// leftover copy is never appended to.
-//
-// Used by:
-//   - processLNDDatabase (below)
-// -----------------------------------------------------------
-
-func copyDatabase(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("failed to open source file: %w", err)
-	}
-	defer sourceFile.Close()
-
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file: %w", err)
-	}
-	defer destFile.Close()
-
-	if _, err := io.Copy(destFile, sourceFile); err != nil {
-		return fmt.Errorf("failed to copy file: %w", err)
-	}
-
-	return nil
-}
-
-
-
-
-
-
-
-
-// -----------------------------------------------------------
 // processLNDDatabase
 // -----------------------------------------------------------
 //
@@ -279,10 +238,12 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 	log.Printf("Starting LND database processing")
 
 
-	// STEP 1: copy the live file aside; the defer that removes
-	// the copy is registered first, so it runs last
-	// ========================================================
-	if err := copyDatabase(lndDbPath, tempDatabasePath); err != nil {
+	// STEP 1: a whole copy of the live file — LND keeps
+	// committing while it is read, see models.CopyChannelDB;
+	// the defer that removes it is registered first, so it
+	// runs last
+	// ======================================================
+	if err := models.CopyChannelDB(lndDbPath, tempDatabasePath, copyAttempts, copyRetryPause); err != nil {
 		return fmt.Errorf("failed to copy database: %w", err)
 	}
 

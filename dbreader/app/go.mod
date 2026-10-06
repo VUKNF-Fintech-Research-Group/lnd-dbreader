@@ -11,4 +11,5 @@ require (
 	github.com/lightningnetwork/lnd v0.21.4-beta
 	github.com/lightningnetwork/lnd/kvdb v1.4.16
 	github.com/lightningnetwork/lnd/tor v1.1.7
+	go.etcd.io/bbolt v1.4.3
 )

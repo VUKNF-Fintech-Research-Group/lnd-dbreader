@@ -4,7 +4,7 @@ Three layers, from cheapest to heaviest:
 
 | Layer | Files | Needs | When to run |
 |---|---|---|---|
-| JSON and graph reading | `json_test.go`, `graph_test.go` | nothing | always |
+| JSON, graph reading, whole copies | `json_test.go`, `graph_test.go`, `snapshot_test.go` | nothing | always |
 | Graph → MySQL | `import_test.go` | the test MySQL | always (via `runTests.sh`) |
 | Service binary | `service_test.go` | the test MySQL, the binary | always (via `runTests.sh`) |
 

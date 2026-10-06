@@ -63,7 +63,7 @@ cd lnd-dbreader
 ### 2. Create Docker-Compose file stack
 
 ```bash
-cp docker-compose.yml.sample docker-compose.yml
+cp docker-compose.sample.yml docker-compose.yml
 ```
 
 ### 3. Edit configuration (if needed)
@@ -248,7 +248,7 @@ Notes: every table is exported whole (history included); node announcements with
 
 ```
 lnd-dbreader/
-├── docker-compose.yml.sample   — the stack; copy to docker-compose.yml (git-ignored)
+├── docker-compose.sample.yml   — the stack; copy to docker-compose.yml (git-ignored)
 ├── runUpdateThisStack.sh       — idempotent bring-up script
 ├── neutrinoChecker.py          — tests candidate NEUTRINO_CONNECT peers for compact filters
 ├── endpoint/Caddyfile          — the ingress: dashboard, /dbgate/, /rawdata/

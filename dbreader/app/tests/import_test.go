@@ -9,9 +9,9 @@
 //  those values, so any drift after the upgrade would add a
 //  duplicate of every row to the append-only history. Then
 //  the upgrade itself (only the DNS hostname may change),
-//  and the history semantics: re-imports only move
-//  last_seen, renames add rows, batch boundaries lose
-//  nothing.
+//  the history semantics — re-imports only move last_seen,
+//  renames add rows, batch boundaries lose nothing — and
+//  the longest address the gossip protocol allows.
 // -----------------------------------------------------------
 
 
@@ -21,12 +21,27 @@ import (
 	// Standard library
 	"database/sql"
 	"fmt"
+	"net"
 	"testing"
 	"time"
 
 	// LND
 	lndmodels "github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+
+
+
+
+
+
+
+// A node_announcement body is at most lnwire.MaxMsgBody
+// bytes; 140 go to the signature, the empty feature
+// vector's length, timestamp, node id, colour, alias and
+// the address list's own length — the rest may be addresses
+const maxAddressListBytes = lnwire.MaxMsgBody - 140
 
 
 
@@ -286,5 +301,57 @@ func TestBatchBoundariesLoseNothing(t *testing.T) {
 	}
 	if got := countRows(t, conn, "node_addresses"); got != 2*n {
 		t.Errorf("node_addresses = %d rows, want %d", got, 2*n)
+	}
+}
+
+
+
+
+
+
+
+
+// -----------------------------------------------------------
+// TestUndecodableAddressAsLongAsTheProtocolAllows
+// -----------------------------------------------------------
+//
+// An address of a type LND cannot decode is stored as the
+// hex of the rest of the node's address list, and the
+// gossip protocol lets that list fill a whole
+// node_announcement. At that maximum the address column
+// must take every hex character — when it was a
+// VARCHAR(255), MySQL's strict mode rejected the whole
+// batch instead — and the unique key, which covers only
+// the first 255 characters, must still see one row after a
+// re-import.
+//
+// Used by:
+//   - go test (runTests.sh)
+// -----------------------------------------------------------
+
+func TestUndecodableAddressAsLongAsTheProtocolAllows(t *testing.T) {
+	conn, _, _ := newTestDatabase(t)
+
+	// The whole address list is one entry of a type LND does
+	// not know, so all of it lands in one opaque blob
+	payload := make([]byte, maxAddressListBytes)
+	payload[0] = 0x0a
+
+	node := syntheticNode(1, "long")
+	node.Addresses = []net.Addr{&lnwire.OpaqueAddrs{Payload: payload}}
+	graph := &fakeGraph{nodes: []*lndmodels.Node{node}}
+
+	runImport(t, graph, conn)
+	runImport(t, graph, conn)
+
+	var rows, length int
+	if err := conn.QueryRow("SELECT COUNT(*), MAX(CHAR_LENGTH(address)) FROM node_addresses").Scan(&rows, &length); err != nil {
+		t.Fatalf("read node_addresses: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("node_addresses = %d rows, want 1", rows)
+	}
+	if length != 2*maxAddressListBytes {
+		t.Errorf("stored address = %d characters, want all %d", length, 2*maxAddressListBytes)
 	}
 }

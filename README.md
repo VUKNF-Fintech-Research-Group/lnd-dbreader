@@ -202,12 +202,21 @@ Stores network addresses for Lightning Network nodes.
 |--------|------|-------------|
 | `id` | BIGINT UNSIGNED | Primary key |
 | `node_id` | VARCHAR(66) | Node public key |
-| `address` | VARCHAR(255) | IP address, hostname or `.onion` |
+| `address` | MEDIUMTEXT | IP address, hostname or `.onion`; for an address type LND cannot decode, the hex of the rest of the node's address list |
 | `port` | INT UNSIGNED | Port number (`0` when the address had none) |
 | `first_seen` | TIMESTAMP | First time seen |
 | `last_seen` | TIMESTAMP | Last update time |
 
-UNIQUE key: `(node_id, address, port)`.
+UNIQUE key: `(node_id, address(255), port)` — every decodable address fits the 255-character prefix in full (a DNS hostname is at most 255); only an over-long undecodable one is keyed by its prefix.
+
+`address` is sized for the gossip protocol's maximum: a `node_announcement` may carry up to 65,393 bytes of addresses, and an undecodable one is stored as hex — up to 130,786 characters, more than TEXT holds. Databases created before 2026-10-06 have `address VARCHAR(255)`, which such an address overflows (MySQL's strict mode then rejects the whole batch and every sync's address import fails). `CREATE TABLE IF NOT EXISTS` never changes an existing table, so upgrade one by hand — a few seconds for a table this size:
+
+```sql
+ALTER TABLE node_addresses
+  DROP INDEX unique_address,
+  MODIFY address MEDIUMTEXT NOT NULL,
+  ADD CONSTRAINT unique_address UNIQUE (node_id, address(255), port);
+```
 
 </br>
 

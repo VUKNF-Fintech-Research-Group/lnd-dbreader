@@ -108,9 +108,25 @@ CREATE TABLE IF NOT EXISTS node_announcements (
 //
 // One row per (node_id, address, port). port is 0 when the
 // address had none (see SendNodeAddresses). Addresses a
-// node drops stay with their old last_seen. address is a
-// VARCHAR(255), which an undecodable address can outgrow —
-// the known bug written up at SendNodeAddresses.
+// node drops stay with their old last_seen.
+//
+// address is sized for the longest the gossip protocol
+// allows. An address LND cannot decode is stored as the hex
+// of everything from its type byte to the end of the
+// node's address list, and that list may fill a whole
+// node_announcement: 65,393 bytes once the fixed fields are
+// paid for, 130,786 hex characters — past TEXT's 65,535
+// bytes, hence MEDIUMTEXT. Every decodable address is far
+// shorter (a DNS hostname is at most 255).
+//
+// unique_address covers the first 255 characters of
+// address: every decodable address in full, an over-long
+// undecodable one by its prefix, as extra_opaque_data is in
+// channel_announcements. Fixed 2026-10-06: the column was a
+// VARCHAR(255), which such an address outgrew, and MySQL's
+// strict mode then rejected the whole batch. IF NOT EXISTS
+// never alters an existing table — an older database needs
+// the ALTER TABLE in the README's schema section.
 //
 // Used by:
 //   - InitializeDatabaseTables (below)
@@ -120,12 +136,12 @@ const createNodeAddressesTable = `
 CREATE TABLE IF NOT EXISTS node_addresses ( 
   id BIGINT UNSIGNED AUTO_INCREMENT NOT NULL,
   node_id VARCHAR(66) NOT NULL,
-  address VARCHAR(255) NOT NULL,
+  address MEDIUMTEXT NOT NULL,
   port INT UNSIGNED NOT NULL,
   first_seen TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
   last_seen TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  CONSTRAINT unique_address UNIQUE (node_id, address, port)
+  CONSTRAINT unique_address UNIQUE (node_id, address(255), port)
 ) ENGINE = InnoDB;
 `
 

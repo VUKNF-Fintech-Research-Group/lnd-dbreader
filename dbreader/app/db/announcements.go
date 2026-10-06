@@ -414,14 +414,11 @@ func executeBatchNodeAnnouncements(db *sql.DB, placeholders []string, values []i
 // and stored it whole as hex with port 0; those old rows
 // stay, the hostname arrives as a new row.
 //
-// Known bug: the whole-string fallback can outgrow the
-// address column, a VARCHAR(255). An address of a type LND
-// cannot decode arrives as the hex of everything from its
-// type byte to the end of the node's address list; past 127
-// bytes that is over 255 characters, MySQL (strict mode, as
-// configured) rejects the whole batch, and the address
-// import fails on every sync while that announcement
-// stands. No node announced one by the v0.21.4 upgrade.
+// The whole-string fallback can be long: an address of a
+// type LND cannot decode arrives as the hex of everything
+// from its type byte to the end of the node's address
+// list. The address column is sized for the longest the
+// gossip protocol allows — see createNodeAddressesTable.
 //
 // Used by:
 //   - main.go processLNDDatabase — STEP 4, last of three

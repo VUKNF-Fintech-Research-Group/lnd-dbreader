@@ -1,15 +1,22 @@
 // -----------------------------------------------------------
 //  [*] db — graph → MySQL importers (announcements.go)
 //
-//  The three imports main.go runs on every sync, each one
-//  MySQL transaction of multi-row INSERT ... ON DUPLICATE
-//  KEY UPDATE statements, batchSize rows per statement. The
-//  graph is walked through the models.ChannelGraph
-//  interface; the row shapes are the Custom* wrappers in
-//  models. Tables come from initialization.go. What is
-//  exported is the graph's TOPOLOGY — channels, nodes,
-//  addresses; channel policies (fees, limits, disabled) are
-//  intentionally left out, see SendChannelAnnouncements.
+//  The three imports main.go runs on every sync, each a run
+//  of multi-row INSERT ... ON DUPLICATE KEY UPDATE
+//  statements, batchSize rows per statement. The graph is
+//  walked through the models.ChannelGraph interface; the row
+//  shapes are the Custom* wrappers in models. Tables come
+//  from initialization.go. What is exported is the graph's
+//  TOPOLOGY — channels, nodes, addresses; channel policies
+//  (fees, limits, disabled) are intentionally left out, see
+//  SendChannelAnnouncements.
+//
+//  The walks get context.Background(): a sync is never
+//  cancelled midway (see main.go), and LND's bolt store
+//  ignores the context anyway. Every value written is pinned
+//  by the golden rows the v0.19.3 dbreader recorded
+//  (tests/testdata) — the unique keys are built from them,
+//  so a drift would duplicate every row of the history.
 //
 //  All three share one pattern: every batch statement is
 //  its own autocommit transaction, nothing spans the walk.
@@ -26,18 +33,20 @@ package db
 
 import (
 	// Standard library
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"log"
 	"net"
 	"strconv"
 	"strings"
 
 	// LND
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 
 	// This module
 	"lnd-dbreader/models"
@@ -75,7 +84,7 @@ const (
 // not in this one.
 //
 // short_channel_id is stored as the uint64; the JSON has it
-// as "block x tx x out" — the two do not look alike.
+// as "block:tx:out" — the two do not look alike.
 //
 // Used by:
 //   - main.go processLNDDatabase — STEP 4, first of three
@@ -93,15 +102,29 @@ func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 	var placeholders []string
 	count := 0
 
-	err := graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo, c1, c2 *models.ChannelEdgePolicy) error {
+	// Rows already flushed are committed upserts — a retried
+	// walk only has to drop the pending batch
+	reset := func() {
+		values = nil
+		placeholders = nil
+		count = 0
+	}
+
+	err := graph.ForEachChannel(context.Background(), func(edgeInfo *models.ChannelEdgeInfo, c1, c2 *models.ChannelEdgePolicy) error {
+		// Options since gossip v2, but the bolt store only
+		// holds v1 channels, which always carry both keys —
+		// the zero fallback never fires
+		bitcoinKey1 := edgeInfo.BitcoinKey1Bytes.UnwrapOr(route.Vertex{})
+		bitcoinKey2 := edgeInfo.BitcoinKey2Bytes.UnwrapOr(route.Vertex{})
+
 		chanAnn := models.CustomChannelAnnouncement{
 			ChannelAnnouncement1: &lnwire.ChannelAnnouncement1{
 				ChainHash:       edgeInfo.ChainHash,
 				ShortChannelID:  lnwire.NewShortChanIDFromInt(edgeInfo.ChannelID),
 				NodeID1:         edgeInfo.NodeKey1Bytes,
 				NodeID2:         edgeInfo.NodeKey2Bytes,
-				BitcoinKey1:     edgeInfo.BitcoinKey1Bytes,
-				BitcoinKey2:     edgeInfo.BitcoinKey2Bytes,
+				BitcoinKey1:     bitcoinKey1,
+				BitcoinKey2:     bitcoinKey2,
 				ExtraOpaqueData: edgeInfo.ExtraOpaqueData,
 			},
 		}
@@ -119,8 +142,8 @@ func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 			shortChannelIDInt,
 			hex.EncodeToString(node1Bytes[:]),
 			hex.EncodeToString(node2Bytes[:]),
-			hex.EncodeToString(edgeInfo.BitcoinKey1Bytes[:]),
-			hex.EncodeToString(edgeInfo.BitcoinKey2Bytes[:]),
+			hex.EncodeToString(bitcoinKey1[:]),
+			hex.EncodeToString(bitcoinKey2[:]),
 			hex.EncodeToString(edgeInfo.ExtraOpaqueData),
 			string(jsonBytes),
 		)
@@ -139,7 +162,7 @@ func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 		}
 
 		return nil
-	})
+	}, reset)
 
 	if err != nil {
 		return fmt.Errorf("failed to iterate channels: %w", err)
@@ -221,6 +244,12 @@ func executeBatchChannelAnnouncements(db *sql.DB, placeholders []string, values 
 // that error aborts the WHOLE import — LND never stores
 // one, so it does not happen in practice.
 //
+// A shell node (one LND never saw an announcement for) has
+// no alias and no colour: it becomes alias "" and #000000,
+// exactly what v0.19.3 handed over — unique_node covers
+// both, so any other fallback would give every shell node a
+// second row.
+//
 // Used by:
 //   - main.go processLNDDatabase — STEP 4, second of three
 // -----------------------------------------------------------
@@ -237,20 +266,28 @@ func SendNodeAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 	var placeholders []string
 	count := 0
 
-	err := graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
-		node := nodeTx.Node()
+	// Rows already flushed are committed upserts — a retried
+	// walk only has to drop the pending batch
+	reset := func() {
+		values = nil
+		placeholders = nil
+		count = 0
+	}
 
-		alias, err := lnwire.NewNodeAlias(node.Alias)
+	err := graph.ForEachNode(context.Background(), func(node *models.Node) error {
+		nodeColor := node.Color.UnwrapOr(color.RGBA{})
+
+		alias, err := lnwire.NewNodeAlias(node.Alias.UnwrapOr(""))
 		if err != nil {
 			return fmt.Errorf("failed to create node alias: %w", err)
 		}
 
 		nodeAnn := models.CustomNodeAnnouncement{
-			NodeAnnouncement: lnwire.NodeAnnouncement{
+			NodeAnnouncement1: lnwire.NodeAnnouncement1{
 				Features:        lnwire.NewRawFeatureVector(),
 				Timestamp:       uint32(node.LastUpdate.Unix()),
 				NodeID:          node.PubKeyBytes,
-				RGBColor:        node.Color,
+				RGBColor:        nodeColor,
 				Alias:           alias,
 				Addresses:       node.Addresses,
 				ExtraOpaqueData: node.ExtraOpaqueData,
@@ -265,7 +302,7 @@ func SendNodeAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 		values = append(values,
 			hex.EncodeToString(node.PubKeyBytes[:]),
 			alias.String(),
-			fmt.Sprintf("#%02x%02x%02x", node.Color.R, node.Color.G, node.Color.B),
+			fmt.Sprintf("#%02x%02x%02x", nodeColor.R, nodeColor.G, nodeColor.B),
 			string(jsonBytes),
 		)
 		placeholders = append(placeholders, "(?, ?, ?, ?, NOW(), NOW())")
@@ -283,7 +320,7 @@ func SendNodeAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 		}
 
 		return nil
-	})
+	}, reset)
 
 	if err != nil {
 		return fmt.Errorf("failed to iterate nodes: %w", err)
@@ -359,6 +396,11 @@ func executeBatchNodeAnnouncements(db *sql.DB, placeholders []string, values []i
 // batch counter counts ADDRESSES, so one node can straddle
 // two batches; harmless, rows are independent.
 //
+// A DNS hostname splits like any host:port since the
+// v0.21.4 upgrade. v0.19.3 could not decode address type 5
+// and stored it whole as hex with port 0; those old rows
+// stay, the hostname arrives as a new row.
+//
 // Used by:
 //   - main.go processLNDDatabase — STEP 4, last of three
 // -----------------------------------------------------------
@@ -375,9 +417,15 @@ func SendNodeAddresses(graph models.ChannelGraph, db *sql.DB) error {
 	var placeholders []string
 	count := 0
 
-	err := graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
-		node := nodeTx.Node()
+	// Rows already flushed are committed upserts — a retried
+	// walk only has to drop the pending batch
+	reset := func() {
+		values = nil
+		placeholders = nil
+		count = 0
+	}
 
+	err := graph.ForEachNode(context.Background(), func(node *models.Node) error {
 		for _, addr := range node.Addresses {
 			host, portStr, err := net.SplitHostPort(addr.String())
 			if err != nil {
@@ -410,7 +458,7 @@ func SendNodeAddresses(graph models.ChannelGraph, db *sql.DB) error {
 		}
 
 		return nil
-	})
+	}, reset)
 
 	if err != nil {
 		return fmt.Errorf("failed to iterate node addresses: %w", err)

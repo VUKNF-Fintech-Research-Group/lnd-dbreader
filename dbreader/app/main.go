@@ -18,9 +18,12 @@
 //  A failed sync never stops the loop: it is logged and the
 //  next tick tries again. Tables are (re)created on EVERY
 //  sync with IF NOT EXISTS, so a wiped database heals
-//  itself. go.mod pins LND v0.19.3-beta — the graph API
-//  moved in 0.19 and the models package wraps that
-//  version's types.
+//  itself. go.mod pins LND v0.21.4-beta, the version the
+//  node runs — the graph API moves between releases (0.19
+//  split out the store, 0.21 versioned it for gossip v2)
+//  and the models package wraps this version's types. A
+//  dbreader older than the node cannot read what it stores:
+//  v0.19.3 broke on the DNS addresses v0.20+ keeps.
 //
 //  Split into (main last):
 //
@@ -51,27 +54,21 @@ import (
 
 	// This module
 	"lnd-dbreader/db"
+	"lnd-dbreader/models"
 
-	// MySQL driver (registers itself) and LND's graph store
+	// MySQL driver (registers itself)
 	_ "github.com/go-sql-driver/mysql"
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
-	"github.com/lightningnetwork/lnd/kvdb"
 )
 
 const (
-	// Only ever printed — the startup log line
+	// Only ever printed — the startup log line; tracks the
+	// LND version go.mod pins
 	appName    = "LND Database Reader"
-	appVersion = "v0.19.3"
+	appVersion = "v0.21.4"
 
 	// Sync cadence when SYNC_INTERVAL_MINUTES is unset or
-	// unparsable; bbolt open timeout for the copied file
+	// unparsable
 	defaultSyncInterval = 30 * time.Minute
-	defaultDBTimeout    = 10 * time.Second
-
-	// Cache sizes handed to LND's graphdb — compare its own
-	// DefaultRejectCacheSize / DefaultChannelCacheSize
-	defaultRejectCacheSize  = 1000
-	defaultChannelCacheSize = 20000
 
 	// Where the live channel.db is copied before opening;
 	// removed after every sync
@@ -213,9 +210,13 @@ func loadConfig() *Config {
 //
 // Plain io.Copy of the live channel.db to tempDatabasePath.
 // Nothing locks out the writer: LND may be mid-transaction,
-// in which case the copy can be inconsistent and the bbolt
-// open in processLNDDatabase fails — that sync errors out
-// and the next tick copies again. os.Create truncates, so a
+// in which case the copy can be torn. The read-only open in
+// models.OpenChannelGraph no longer trips over that (the
+// old read-write open rebuilt the freelist and panicked);
+// a torn copy usually fails the walk, that sync errors out
+// and the next tick copies again. A page torn badly enough
+// can still panic bbolt itself — the container's restart
+// policy is the backstop. os.Create truncates, so a
 // leftover copy is never appended to.
 //
 // Used by:
@@ -256,7 +257,7 @@ func copyDatabase(src, dst string) error {
 // One full sync: copy → open through LND → three imports.
 // Every resource is released by a defer, in reverse order
 // of acquisition, and the copy is removed LAST — after the
-// graph and the bbolt backend are closed.
+// bbolt file is closed.
 //
 // Used by:
 //   - main (below) — the initial sync and every tick
@@ -282,45 +283,16 @@ func processLNDDatabase(lndDbPath string, mysqlDB *sql.DB) error {
 	log.Printf("Database copied successfully")
 
 
-	// STEP 2: open the copy read-only as a bbolt backend and
-	// build LND's graph on top of it
-	// ======================================================
-	kvdbBackend, err := kvdb.Open(kvdb.BoltBackendName, tempDatabasePath, true, defaultDBTimeout, false)
+	// STEP 2: open the copy read-only through LND's own graph
+	// store — the why lives in models.OpenChannelGraph
+	// =======================================================
+	graph, closeGraph, err := models.OpenChannelGraph(tempDatabasePath)
 	if err != nil {
-		return fmt.Errorf("failed to open LND database backend: %w", err)
+		return err
 	}
 	defer func() {
-		if err := kvdbBackend.Close(); err != nil {
+		if err := closeGraph(); err != nil {
 			log.Printf("Warning: Failed to close database backend: %v", err)
-		}
-	}()
-
-	// STEP 2.1: the graph over kvdbBackend, graph cache on —
-	// Start() then loads the whole graph into memory
-	graphConfig := &graphdb.Config{
-		KVDB: kvdbBackend,
-		KVStoreOpts: []graphdb.KVStoreOptionModifier{
-			graphdb.WithRejectCacheSize(defaultRejectCacheSize),
-			graphdb.WithChannelCacheSize(defaultChannelCacheSize),
-		},
-	}
-
-	chanGraphOpts := []graphdb.ChanGraphOption{
-		graphdb.WithUseGraphCache(true),
-	}
-
-	graph, err := graphdb.NewChannelGraph(graphConfig, chanGraphOpts...)
-	if err != nil {
-		return fmt.Errorf("failed to create channel graph: %w", err)
-	}
-
-	// STEP 2.2: Start populates the cache; Stop is deferred
-	if err := graph.Start(); err != nil {
-		return fmt.Errorf("failed to start channel graph: %w", err)
-	}
-	defer func() {
-		if err := graph.Stop(); err != nil {
-			log.Printf("Warning: Failed to stop graph: %v", err)
 		}
 	}()
 

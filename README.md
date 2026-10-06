@@ -3,8 +3,8 @@
 A service that continuously reads the Lightning Network Daemon (LND) channel graph and synchronizes it into a MySQL database, together with the full Docker stack around it: a graph-only LND node, MySQL, a database browser, a periodic JSON export served over HTTP, and optional Zabbix monitoring.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Go Version](https://img.shields.io/badge/go-1.23+-blue.svg)
-![LND Version](https://img.shields.io/badge/LND-v0.19.3--beta-blue.svg)
+![Go Version](https://img.shields.io/badge/go-1.26.8+-blue.svg)
+![LND Version](https://img.shields.io/badge/LND-v0.21.4--beta-blue.svg)
 
 <img width="1082" height="746" alt="Screenshot 2025-08-05 at 14 53 43" src="https://github.com/user-attachments/assets/e60587dd-070d-4353-9d60-53003090d541" />
 
@@ -13,7 +13,7 @@ A service that continuously reads the Lightning Network Daemon (LND) channel gra
 ## 🚀 Features
 
 - **Continuous Synchronization**: Syncs the LND graph into MySQL at a configurable interval (30 minutes by default)
-- **LND 0.19 Graph Architecture**: Reads the graph through LND's own `graph/db` package (Go dependency and the bundled node both pinned to LND v0.19.3-beta)
+- **LND 0.21 Graph Store**: Reads the graph through LND's own `graph/db` package (Go dependency and the bundled node both pinned to LND v0.21.4-beta — keep them in step: an older dbreader cannot read what a newer node stores)
 - **Database Lock Avoidance**: Copies `channel.db` aside before opening it, so the running LND node is never locked out
 - **Batch Processing**: 5000-row `INSERT ... ON DUPLICATE KEY UPDATE` statements, each committed on its own
 - **Append-Only History**: Rows are upserted, never deleted — `first_seen` / `last_seen` tell the story of every channel, alias and address
@@ -103,7 +103,7 @@ All containers live in one Docker Compose stack, named `lnd-dbreader-<service>`:
 | Service | Image | Role |
 |---------|-------|------|
 | `lnd-dbreader-endpoint` | `caddy:2.11-alpine` | The only published port (80). Serves the dashboard at `/`, proxies `/dbgate/`, and serves `_DATA/exporter` read-only at `/rawdata/` |
-| `lnd-dbreader-lnd` | `lightninglabs/lnd:v0.19.3-beta` | Graph-only LND node: neutrino backend, fixed peer list, `--noseedbackup` (never holds funds). Runs as user 1000 on a read-only filesystem with its data at `/lnd`. Started by `lnd/start-lnd.sh` |
+| `lnd-dbreader-lnd` | `lightninglabs/lnd:v0.21.4-beta` | Graph-only LND node: neutrino backend, fixed peer list, `--noseedbackup` (never holds funds). Runs as user 1000 on a read-only filesystem with its data at `/lnd`. Started by `lnd/start-lnd.sh` |
 | `lnd-dbreader-autoheal` | `willfarrell/autoheal:1.2.0` | Restarts the LND container when its healthcheck (synced to chain and at least one peer) fails |
 | `lnd-dbreader-dbreader` | `vuknf/lnd-dbreader-dbreader` | The Go sync service — this repository's `dbreader/`. Runs as user 1000 on a read-only filesystem; `/tmp` is a tmpfs because every sync copies `channel.db` there |
 | `lnd-dbreader-mysql` | `mysql:8.4.0` | The database. Config in `mysql/my.cnf`, data in `_DATA/mysql` |
@@ -120,7 +120,7 @@ The LND node's data directory is `_DATA/lnd`, mounted at `/lnd` inside the LND c
 Every `SYNC_INTERVAL_MINUTES` (and once at start-up) dbreader:
 
 1. **Copies** the live `channel.db` to `/tmp/channel_copy.db` (a tmpfs — the copy lives in RAM, ~0.5 GB today). bbolt holds an exclusive lock on the file LND has open, so the live file is never touched; the graph directory is mounted read-only. If LND was mid-write the copy can be inconsistent — that sync fails and the next one copies again.
-2. **Opens the copy** read-only through LND's `kvdb` and `graph/db` packages, with the graph cache enabled.
+2. **Opens the copy** read-only through LND's `kvdb` and `graph/db` packages (`models.OpenChannelGraph`). Read-only matters: a read-write open made bbolt rebuild the freelist of a torn copy, which panicked and restarted the container. The graph cache stays off — neither walk reads it.
 3. **Creates the tables** if they are missing (`CREATE TABLE IF NOT EXISTS`, every sync — a wiped database heals itself).
 4. **Imports** channel announcements, node announcements and node addresses, in that order. Each importer walks the graph and upserts rows in batches of 5000; every batch is its own autocommit transaction, so a failure keeps what was imported so far and the next sync re-applies the rest (every row is an idempotent upsert).
 
@@ -256,11 +256,13 @@ lnd-dbreader/
 ├── mysql/my.cnf                — MySQL settings (InnoDB buffer pool)
 ├── dbreader/
 │   ├── Dockerfile              — builds the Go service from app/
+│   ├── runTests.sh             — regression suite in throwaway containers
 │   ├── pushDockerhub.sh
 │   └── app/                    — Go module `lnd-dbreader`
 │       ├── main.go             — config, sync loop
 │       ├── db/                 — schema (initialization.go) and importers (announcements.go)
-│       └── models/             — LND type wrappers and the ChannelGraph interface
+│       ├── models/             — LND type wrappers, the ChannelGraph interface and its opener
+│       └── tests/              — regression tests and their anchors (testdata/), see tests/README.md
 ├── exporter/                   — Python: the 12-hour JSON export
 ├── zabbix/                     — Python: optional row-count metrics
 └── _DATA/                      — runtime data (git-ignored): lnd/, mysql/, exporter/
@@ -275,9 +277,17 @@ The sample compose file uses the published images. To build from source, flip th
 Nothing is installed on the host: builds run in containers. To vet and build the Go service by hand:
 
 ```bash
-docker run --rm -v "$PWD/dbreader/app:/src:ro" golang:1.23 \
+docker run --rm -v "$PWD/dbreader/app:/src:ro" golang:1.27.1 \
   sh -c 'cp -r /src /b && cd /b && go mod tidy && go vet ./... && go build ./...'
 ```
+
+### Regression tests
+
+```bash
+./dbreader/runTests.sh
+```
+
+Builds the dbreader image's build stage and runs `dbreader/app/tests` in it, next to a throwaway MySQL 8.4.0 with the production `my.cnf`, on an internal network that is removed afterwards — the running stack is never touched. The anchors were recorded during the LND v0.19.3 → v0.21.4 upgrade: a graph written by LND v0.19.3 and the exact rows the v0.19.3 dbreader wrote for it, which the current dbreader must reproduce. `dbreader/app/tests/README.md` has the layers and the details.
 
 ### Code style
 

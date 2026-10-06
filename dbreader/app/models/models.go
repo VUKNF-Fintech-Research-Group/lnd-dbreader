@@ -1,5 +1,5 @@
 // -----------------------------------------------------------
-//  [*] models — LND v0.19.3 types, wrapped for JSON and MySQL
+//  [*] models — LND v0.21.4 types, wrapped for JSON and MySQL
 //
 //  Thin layer over LND's own packages: aliases for the graph
 //  model types and two wrappers that give lnwire
@@ -7,9 +7,13 @@
 //  host/port addresses) for the json_data columns. The
 //  ChannelGraph interface lives next door in graph.go.
 //
+//  The JSON is pinned byte-for-byte by the golden rows the
+//  v0.19.3 dbreader recorded (tests/testdata) — the LND
+//  upgrade changed the Go types under it, not its output.
+//
 //  Split into:
 //
-//    ChannelEdgeInfo, ChannelEdgePolicy — type aliases
+//    ChannelEdgeInfo, ChannelEdgePolicy, Node — type aliases
 //    CustomNodeAnnouncement        — node → JSON
 //    CustomAddress                 — one address in that JSON
 //    CustomChannelAnnouncement     — channel → JSON
@@ -43,16 +47,19 @@ import (
 // -----------------------------------------------------------
 //
 // = aliases, not new types, so LND values pass straight
-// through: the ForEachChannel callback signature in db is
-// written against these two names.
+// through: the walk callbacks in db are written against
+// these names.
 //
 // Used by:
-//   - db/announcements.go SendChannelAnnouncements
+//   - db/announcements.go — ChannelEdgeInfo and
+//     ChannelEdgePolicy in SendChannelAnnouncements, Node in
+//     SendNodeAnnouncements and SendNodeAddresses
 // -----------------------------------------------------------
 
 type (
 	ChannelEdgeInfo   = models.ChannelEdgeInfo
 	ChannelEdgePolicy = models.ChannelEdgePolicy
+	Node              = models.Node
 )
 
 
@@ -66,17 +73,18 @@ type (
 // CustomNodeAnnouncement
 // -----------------------------------------------------------
 //
-// lnwire.NodeAnnouncement by embedding, so every field is
-// reachable, plus MarshalJSON below, which replaces the
-// wire encoding with the flat JSON stored in
-// node_announcements.json_data.
+// lnwire.NodeAnnouncement1 by embedding (the plain
+// lnwire.NodeAnnouncement of v0.19 — the name is an
+// interface since gossip v2), so every field is reachable,
+// plus MarshalJSON below, which replaces the wire encoding
+// with the flat JSON stored in node_announcements.json_data.
 //
 // Used by:
 //   - db/announcements.go SendNodeAnnouncements
 // -----------------------------------------------------------
 
 type CustomNodeAnnouncement struct {
-	lnwire.NodeAnnouncement
+	lnwire.NodeAnnouncement1
 }
 
 
@@ -93,7 +101,9 @@ type CustomNodeAnnouncement struct {
 // One entry of the "addresses" array in the node JSON. Type
 // is "tcp" when host:port split cleanly, otherwise "unknown"
 // with the raw string in Address and Port 0 — the JSON does
-// not tell Tor from clearnet.
+// not tell Tor from clearnet. A DNS hostname is "tcp" since
+// the v0.21.4 upgrade (LND decodes address type 5); v0.19.3
+// handed it over as an opaque blob, "unknown" with its hex.
 //
 // Used by:
 //   - CustomNodeAnnouncement.MarshalJSON (below)
@@ -200,7 +210,7 @@ func (c CustomNodeAnnouncement) MarshalJSON() ([]byte, error) {
 //
 // The channel JSON, all hex strings: chain_hash is emitted
 // byte-REVERSED, the same digits chainhash.Hash.String()
-// prints; short_channel_id is the "block x tx x out" form,
+// prints; short_channel_id is the "block:tx:out" form,
 // unlike the uint64 in the short_channel_id column;
 // extra_opaque_data is omitted when empty.
 //

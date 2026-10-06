@@ -1,0 +1,96 @@
+{
+  "recorded_with": "vuknf/lnd-dbreader-dbreader:20260826 (sha256:6825f131355acb99c1438cea526c381c03b0d7374a296534b77e6d6c10c6472c) - the v0.19.3 dbreader production image, MySQL 8.4.0, 2026-10-06",
+  "fixture": "channel-lnd-v0.19.3.db",
+  "channel_announcements": [
+    {
+      "short_channel_id": 934584883707904001,
+      "node_id_1": "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+      "node_id_2": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "bitcoin_key_1": "03ab5d2e79cfd621b1b027ffb24e2453ed7fb571ba9a841ff0e2473466cabd168d",
+      "bitcoin_key_2": "036b7eb04e07af07b5d82e463660f9e3e4eaf9c854e5aa47391d6daa8e9ac01a35",
+      "extra_opaque_data": "",
+      "json_data": "{\"node_id_1\": \"024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\", \"node_id_2\": \"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\", \"chain_hash\": \"000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f\", \"bitcoin_key_1\": \"03ab5d2e79cfd621b1b027ffb24e2453ed7fb571ba9a841ff0e2473466cabd168d\", \"bitcoin_key_2\": \"036b7eb04e07af07b5d82e463660f9e3e4eaf9c854e5aa47391d6daa8e9ac01a35\", \"short_channel_id\": \"850000:1500:1\"}"
+    },
+    {
+      "short_channel_id": 945580000018432000,
+      "node_id_1": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "node_id_2": "03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+      "bitcoin_key_1": "03eef017846ec31a44edc6c7e8d26347f9914749ff5ca31eeb51841d501e74ed70",
+      "bitcoin_key_2": "036aa3da9b5c1d61956076cb3014ffdaa0996bacdae29ba4b89e39b4088f86ec78",
+      "extra_opaque_data": "0304deadbeef",
+      "json_data": "{\"node_id_1\": \"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\", \"node_id_2\": \"03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\", \"chain_hash\": \"000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f\", \"bitcoin_key_1\": \"03eef017846ec31a44edc6c7e8d26347f9914749ff5ca31eeb51841d501e74ed70\", \"bitcoin_key_2\": \"036aa3da9b5c1d61956076cb3014ffdaa0996bacdae29ba4b89e39b4088f86ec78\", \"short_channel_id\": \"860000:2000:0\", \"extra_opaque_data\": \"0304deadbeef\"}"
+    },
+    {
+      "short_channel_id": 956575116165316610,
+      "node_id_1": "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+      "node_id_2": "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+      "bitcoin_key_1": "02f4f6a5667475b3b52468751c478faad9ea15075c79adeca9f5288311ef176443",
+      "bitcoin_key_2": "02e90f208fb3cf3a276404b8213af59fa30bff2aa1fb92cc2c7f433a9f0331d123",
+      "extra_opaque_data": "058c000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b",
+      "json_data": "{\"node_id_1\": \"024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\", \"node_id_2\": \"02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337\", \"chain_hash\": \"000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f\", \"bitcoin_key_1\": \"02f4f6a5667475b3b52468751c478faad9ea15075c79adeca9f5288311ef176443\", \"bitcoin_key_2\": \"02e90f208fb3cf3a276404b8213af59fa30bff2aa1fb92cc2c7f433a9f0331d123\", \"short_channel_id\": \"870000:3:2\", \"extra_opaque_data\": \"058c000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b\"}"
+    }
+  ],
+  "node_announcements": [
+    {
+      "node_id": "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+      "alias": "⚡bravo",
+      "rgb_color": "#ff9900",
+      "json_data": "{\"alias\": \"⚡bravo\", \"node_id\": \"024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\", \"addresses\": [{\"port\": 9735, \"type\": \"tcp\", \"address\": \"198.51.100.20\"}, {\"port\": 0, \"type\": \"unknown\", \"address\": \"05106e6f64652e6578616d706c652e636f6d2607\"}], \"rgb_color\": \"#ff9900\", \"timestamp\": 1770091506}"
+    },
+    {
+      "node_id": "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+      "alias": "",
+      "rgb_color": "#010203",
+      "json_data": "{\"alias\": \"\", \"node_id\": \"02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337\", \"addresses\": [{\"port\": 0, \"type\": \"unknown\", \"address\": \"0adeadbeef\"}], \"rgb_color\": \"#010203\", \"timestamp\": 1772600767}"
+    },
+    {
+      "node_id": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "alias": "alpha",
+      "rgb_color": "#3399ff",
+      "json_data": "{\"alias\": \"alpha\", \"node_id\": \"031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\", \"addresses\": [{\"port\": 9735, \"type\": \"tcp\", \"address\": \"203.0.113.10\"}, {\"port\": 9736, \"type\": \"tcp\", \"address\": \"2001:db8::10\"}, {\"port\": 9735, \"type\": \"tcp\", \"address\": \"abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwx.onion\"}, {\"port\": 9735, \"type\": \"tcp\", \"address\": \"abcdefghijklmnop.onion\"}], \"rgb_color\": \"#3399ff\", \"timestamp\": 1767323045}"
+    },
+    {
+      "node_id": "03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+      "alias": "",
+      "rgb_color": "#000000",
+      "json_data": "{\"alias\": \"\", \"node_id\": \"03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b\", \"addresses\": [], \"rgb_color\": \"#000000\", \"timestamp\": 0}"
+    }
+  ],
+  "node_addresses": [
+    {
+      "node_id": "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+      "address": "05106e6f64652e6578616d706c652e636f6d2607",
+      "port": 0
+    },
+    {
+      "node_id": "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+      "address": "198.51.100.20",
+      "port": 9735
+    },
+    {
+      "node_id": "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+      "address": "0adeadbeef",
+      "port": 0
+    },
+    {
+      "node_id": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "address": "2001:db8::10",
+      "port": 9736
+    },
+    {
+      "node_id": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "address": "203.0.113.10",
+      "port": 9735
+    },
+    {
+      "node_id": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "address": "abcdefghijklmnop.onion",
+      "port": 9735
+    },
+    {
+      "node_id": "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "address": "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwx.onion",
+      "port": 9735
+    }
+  ]
+}

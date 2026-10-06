@@ -7,8 +7,8 @@
 //  byte-reversed chain hash, the "block:tx:out" channel id
 //  and the dropped empty opaque data. MySQL re-orders the
 //  keys of a JSON column on the way in, so these compare
-//  decoded values; import_test.go pins the stored text
-//  against the golden rows.
+//  decoded values; import_test.go compares the rows MySQL
+//  stored with the golden ones.
 // -----------------------------------------------------------
 
 

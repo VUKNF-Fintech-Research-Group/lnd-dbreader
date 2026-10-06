@@ -7,10 +7,6 @@
 //  host/port addresses) for the json_data columns. The
 //  ChannelGraph interface lives next door in graph.go.
 //
-//  The JSON is pinned byte-for-byte by the golden rows the
-//  v0.19.3 dbreader recorded (tests/testdata) — the LND
-//  upgrade changed the Go types under it, not its output.
-//
 //  Split into:
 //
 //    ChannelEdgeInfo, ChannelEdgePolicy, Node — type aliases
@@ -46,7 +42,7 @@ import (
 // type aliases
 // -----------------------------------------------------------
 //
-// = aliases, not new types, so LND values pass straight
+// Aliases, not new types, so LND values pass straight
 // through: the walk callbacks in db are written against
 // these names.
 //

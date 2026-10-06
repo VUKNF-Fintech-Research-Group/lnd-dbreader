@@ -6,8 +6,7 @@
 //  OpenChannelGraph, which builds them over a channel.db
 //  file. An interface rather than *graphdb.VersionedGraph
 //  so the importers accept anything that walks like the
-//  graph — tests hand in a fake one. Sibling of models.go,
-//  which wraps the row types.
+//  graph. Sibling of models.go, which wraps the row types.
 // -----------------------------------------------------------
 
 
@@ -69,8 +68,7 @@ type ChannelGraph interface {
 	// The edge, then its two directed policies
 	ForEachChannel(ctx context.Context, cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error, reset func()) error
 
-	// One full node record per call — Alias and Color are
-	// fn.Option, unset on a node LND never saw announced
+	// The full node record; a shell node has no Alias or Color
 	ForEachNode(ctx context.Context, cb func(*models.Node) error, reset func()) error
 }
 
@@ -111,7 +109,6 @@ type ChannelGraph interface {
 //
 // Used by:
 //   - main.go processLNDDatabase — STEP 2 of every sync
-//   - tests/ — every fixture graph
 // -----------------------------------------------------------
 
 func OpenChannelGraph(dbPath string) (ChannelGraph, func() error, error) {

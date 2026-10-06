@@ -72,7 +72,9 @@ type walkedChannel struct {
 // nodes by pubkey. Either walk failing fails the test.
 //
 // Used by:
-//   - the tests below
+//   - TestV0193FixtureWalksThroughV0214Decoders,
+//     TestV0214FixtureHandsOverTheDNSAddress,
+//     TestOpeningLeavesTheFileUntouched (below)
 // -----------------------------------------------------------
 
 func walkGraph(t *testing.T, graph models.ChannelGraph) (map[string]walkedChannel, map[route.Vertex]*lndmodels.Node) {

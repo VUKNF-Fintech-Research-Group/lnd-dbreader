@@ -30,11 +30,15 @@ import (
 // createChannelAnnouncementsTable
 // -----------------------------------------------------------
 //
-// unique_channel spans EVERY announced field, with
-// extra_opaque_data cut to its first 255 bytes: a
-// re-announcement with different opaque data is a NEW row,
-// not an update, so the upsert in announcements.go mostly
-// just bumps last_seen. json_data is outside the key.
+// unique_channel spans EVERY announced column. An index can
+// only cover a TEXT column by a prefix, so extra_opaque_data
+// takes part by its first 255 characters — of the hex, so
+// about 127 bytes of the raw data: a re-announcement whose
+// opaque data differs inside that prefix is a NEW row, a
+// difference past it updates the old row in place. LND
+// keeps one announcement per channel, so in practice the
+// upsert in announcements.go just bumps last_seen.
+// json_data is outside the key.
 //
 // Used by:
 //   - InitializeDatabaseTables (below)
@@ -104,7 +108,9 @@ CREATE TABLE IF NOT EXISTS node_announcements (
 //
 // One row per (node_id, address, port). port is 0 when the
 // address had none (see SendNodeAddresses). Addresses a
-// node drops stay with their old last_seen.
+// node drops stay with their old last_seen. address is a
+// VARCHAR(255), which an undecodable address can outgrow —
+// the known bug written up at SendNodeAddresses.
 //
 // Used by:
 //   - InitializeDatabaseTables (below)

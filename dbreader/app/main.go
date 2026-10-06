@@ -25,6 +25,11 @@
 //  dbreader older than the node cannot read what it stores:
 //  v0.19.3 broke on the DNS addresses v0.20+ keeps.
 //
+//  The story continues in two packages: db/ holds the schema
+//  (initialization.go) and the three importers
+//  (announcements.go), models/ the graph opener (graph.go)
+//  and the JSON shapes of the rows (models.go).
+//
 //  Split into (main last):
 //
 //    Config, MySQLConfig    — the parsed environment
@@ -59,6 +64,13 @@ import (
 	// MySQL driver (registers itself)
 	_ "github.com/go-sql-driver/mysql"
 )
+
+
+
+
+
+
+
 
 const (
 	// Only ever printed — the startup log line; tracks the
@@ -138,9 +150,9 @@ type MySQLConfig struct {
 // getEnv
 // -----------------------------------------------------------
 //
-// os.Getenv with a default. An EMPTY value counts as unset:
-// `MYSQL_PASSWORD=` in compose yields the default password,
-// not an empty one.
+// os.Getenv with a default. An EMPTY value counts as unset,
+// so a compose file that sets MYSQL_PASSWORD to nothing
+// gets the default password, never an empty one.
 //
 // Used by:
 //   - loadConfig (below)
@@ -166,9 +178,9 @@ func getEnv(key, defaultValue string) string {
 //
 // Builds Config from the environment. SYNC_INTERVAL_MINUTES
 // is parsed by appending "m" and handing the result to
-// time.ParseDuration, so "1.5" works too; anything that does
-// not parse falls back to defaultSyncInterval with a warning
-// in the log.
+// time.ParseDuration, so fractional minutes work too;
+// anything that does not parse falls back to
+// defaultSyncInterval with a warning in the log.
 //
 // Used by:
 //   - main (below)
@@ -377,8 +389,9 @@ func setupGracefulShutdown() (context.Context, context.CancelFunc) {
 // -----------------------------------------------------------
 //
 // sql.Open plus a Ping, because Open alone never touches the
-// network. The DSN is user:password@tcp(host:port)/db with
-// no parameters — no parseTime, no TLS.
+// network. The DSN is the driver's plain TCP form — user,
+// password, host, port and database — with no parameters:
+// no parseTime (timestamps scan as text), no TLS.
 //
 // Used by:
 //   - main (below)
@@ -419,7 +432,7 @@ func connectToMySQL(config MySQLConfig) (*sql.DB, error) {
 // stderr via log — docker logs shows both.
 //
 // Used by:
-//   - Dockerfile — CMD ["./lnd-dbreader"], the
+//   - the image's CMD (Dockerfile) — the process of the
 //     lnd-dbreader-dbreader compose service
 // -----------------------------------------------------------
 

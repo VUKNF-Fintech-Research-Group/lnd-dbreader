@@ -51,7 +51,9 @@ const serviceCopyPath = "/tmp/channel_copy.db"
 // hour between syncs so no tick fires during a test.
 //
 // Used by:
-//   - the tests below
+//   - TestServiceSyncsAndStopsCleanly,
+//     TestServiceKeepsRunningAfterAFailedSync,
+//     TestServiceExitsWhenMySQLIsUnreachable (below)
 // -----------------------------------------------------------
 
 func serviceEnv(cfg mysqlConfig, database, lndDBPath string) []string {

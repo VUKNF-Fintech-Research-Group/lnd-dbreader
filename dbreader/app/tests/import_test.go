@@ -44,7 +44,8 @@ import (
 // production v0.19.3 dbreader image wrote for the same file
 // — node, address and channel keys, aliases (multibyte,
 // empty), colours (#000000 for the shell node), opaque data
-// over the 255-byte key prefix, and every json_data.
+// whose hex outgrows the 255-character key prefix, and
+// every json_data.
 //
 // Used by:
 //   - go test (runTests.sh)

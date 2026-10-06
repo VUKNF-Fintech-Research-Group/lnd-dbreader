@@ -13,10 +13,9 @@
 //
 //  The walks get context.Background(): a sync is never
 //  cancelled midway (see main.go), and LND's bolt store
-//  ignores the context anyway. Every value written is pinned
-//  by the golden rows the v0.19.3 dbreader recorded
-//  (tests/testdata) — the unique keys are built from them,
-//  so a drift would duplicate every row of the history.
+//  ignores the context anyway. The unique keys are built
+//  from the values written here, so rendering any of them
+//  differently would duplicate every row of the history.
 //
 //  All three share one pattern: every batch statement is
 //  its own autocommit transaction, nothing spans the walk.
@@ -52,10 +51,18 @@ import (
 	"lnd-dbreader/models"
 )
 
+
+
+
+
+
+
+
 const (
 	// Rows per INSERT statement, not per transaction: every
-	// row is one "(?, ...)" placeholder group, so the channel
-	// statement binds up to 7 × 5000 values
+	// row is one placeholder group, so the channel statement
+	// binds up to 7 × 5000 values — safely under the 65,535
+	// placeholders MySQL allows in one prepared statement
 	batchSize = 5000
 )
 
@@ -192,12 +199,18 @@ func SendChannelAnnouncements(graph models.ChannelGraph, db *sql.DB) error {
 // executeBatchChannelAnnouncements
 // -----------------------------------------------------------
 //
-// One INSERT ... VALUES (...),(...) ON DUPLICATE KEY UPDATE
-// for up to batchSize channel rows. Because unique_channel
-// covers every inserted column, the UPDATE branch can only
-// ever refresh last_seen (and rewrite json_data with the
-// same content). Runs as its own autocommit transaction,
-// so its row locks are gone the moment it returns.
+// One multi-row INSERT ... ON DUPLICATE KEY UPDATE for up
+// to batchSize channel rows. unique_channel covers every
+// announced column, extra_opaque_data by its first 255
+// characters only, so a hit is the same announcement again
+// and the UPDATE branch refreshes last_seen and rewrites
+// json_data (outside the key) from the same fields. Opaque
+// data differing only past that prefix would hit the key
+// and be overwritten in place instead of becoming a row of
+// its own — LND never replaces a stored announcement, so
+// it does not happen. Runs as its own autocommit
+// transaction, so its row locks are gone the moment it
+// returns.
 //
 // Used by:
 //   - SendChannelAnnouncements (above) — mid-walk and tail
@@ -400,6 +413,15 @@ func executeBatchNodeAnnouncements(db *sql.DB, placeholders []string, values []i
 // v0.21.4 upgrade. v0.19.3 could not decode address type 5
 // and stored it whole as hex with port 0; those old rows
 // stay, the hostname arrives as a new row.
+//
+// Known bug: the whole-string fallback can outgrow the
+// address column, a VARCHAR(255). An address of a type LND
+// cannot decode arrives as the hex of everything from its
+// type byte to the end of the node's address list; past 127
+// bytes that is over 255 characters, MySQL (strict mode, as
+// configured) rejects the whole batch, and the address
+// import fails on every sync while that announcement
+// stands. No node announced one by the v0.21.4 upgrade.
 //
 // Used by:
 //   - main.go processLNDDatabase — STEP 4, last of three

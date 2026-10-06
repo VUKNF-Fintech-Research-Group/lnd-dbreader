@@ -35,8 +35,8 @@
 //                                disabled
 //    860000x2000x0 alpha–delta   no policies, short TLV
 //    870000x3x2    bravo–charlie one policy, 142-byte TLV
-//                                (its hex outgrows the 255
-//                                key prefix)
+//                                (its hex outgrows the
+//                                255-character key prefix)
 //
 //  It only ever runs in a throwaway golang:1.23 container
 //  (the Go LND v0.19.3 pins); tests/README.md has the
@@ -83,9 +83,9 @@ import (
 // vertex
 // -----------------------------------------------------------
 //
-// The compressed pubkey of the private key that is `fill`
-// repeated 32 times — real curve points, so the fixture
-// looks like a graph LND could have gossiped.
+// The compressed pubkey of the private key made of the fill
+// byte repeated 32 times — real curve points, so the
+// fixture looks like a graph LND could have gossiped.
 //
 // Used by:
 //   - main (below) — node and bitcoin keys

@@ -118,8 +118,8 @@ var (
 // vertex
 // -----------------------------------------------------------
 //
-// The compressed pubkey of the private key that is `fill`
-// repeated 32 times — the same derivation the v0.19.3
+// The compressed pubkey of the private key made of the fill
+// byte repeated 32 times — the same derivation the v0.19.3
 // generator uses, so both fixtures share every key.
 //
 // Used by:
@@ -711,7 +711,7 @@ func goldenForV0214(t *testing.T) tableRows {
 // itself is not comparable to a fresh json.Marshal.
 //
 // Used by:
-//   - assertRowsEqual (below), json_test.go
+//   - assertRowsEqual (below)
 // -----------------------------------------------------------
 
 func sameJSON(a, b string) bool {
@@ -1095,7 +1095,8 @@ func dumpRows(t *testing.T, conn *sql.DB) tableRows {
 // countRows
 // -----------------------------------------------------------
 //
-// SELECT COUNT(*) of one table.
+// The number of rows in one table. The name is pasted into
+// the query, so only the tests' own table names go in.
 //
 // Used by:
 //   - import_test.go
@@ -1148,6 +1149,10 @@ type fakeGraph struct {
 // fakeGraph.ForEachChannel
 // -----------------------------------------------------------
 //
+// Calls reset once, as the bolt store does before its read
+// transaction, then hands over every channel in slice order
+// with both policies nil.
+//
 // Used by:
 //   - db.SendChannelAnnouncements — via import_test.go
 // -----------------------------------------------------------
@@ -1170,6 +1175,9 @@ func (f *fakeGraph) ForEachChannel(_ context.Context, cb func(*lndmodels.Channel
 // -----------------------------------------------------------
 // fakeGraph.ForEachNode
 // -----------------------------------------------------------
+//
+// Calls reset once, then hands over every node in slice
+// order.
 //
 // Used by:
 //   - db.SendNodeAnnouncements, db.SendNodeAddresses — via
@@ -1352,7 +1360,7 @@ func serviceBinary(t *testing.T) string {
 // -----------------------------------------------------------
 //
 // One running dbreader process: its combined stdout+stderr
-// is collected line by line (log writes stderr, the sync
+// is collected as it arrives (log writes stderr, the sync
 // banners stdout) so a test can wait for a log line, then
 // stop it the way docker stop does.
 //

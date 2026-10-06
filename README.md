@@ -103,7 +103,7 @@ All containers live in one Docker Compose stack, named `lnd-dbreader-<service>`:
 | Service | Image | Role |
 |---------|-------|------|
 | `lnd-dbreader-endpoint` | `caddy:2.11-alpine` | The only published port (80). Serves the dashboard at `/`, proxies `/dbgate/`, and serves `_DATA/exporter` read-only at `/rawdata/` |
-| `lnd-dbreader-lnd` | `lightninglabs/lnd:v0.21.4-beta` | Graph-only LND node: neutrino backend, fixed peer list, `--noseedbackup` (never holds funds). Runs as user 1000 on a read-only filesystem with its data at `/lnd`. Started by `lnd/start-lnd.sh` |
+| `lnd-dbreader-lnd` | `lnd-dbreader-lnd` (built from `lnd/`) | Graph-only LND node: neutrino backend, fixed peer list, `--noseedbackup` (never holds funds). Runs as user 1000 on a read-only filesystem with its data at `/lnd`. `lnd/Dockerfile` is the official `lightninglabs/lnd:v0.21.4-beta` image with `lnd/start-lnd.sh` as its entrypoint and the healthcheck baked in |
 | `lnd-dbreader-autoheal` | `willfarrell/autoheal:1.2.0` | Restarts the LND container when its healthcheck (synced to chain and at least one peer) fails |
 | `lnd-dbreader-dbreader` | `vuknf/lnd-dbreader-dbreader` | The Go sync service — this repository's `dbreader/`. Runs as user 1000 on a read-only filesystem; `/tmp` is a tmpfs because every sync copies `channel.db` there |
 | `lnd-dbreader-mysql` | `mysql:8.4.0` | The database. Config in `mysql/my.cnf`, data in `_DATA/mysql` |
@@ -152,7 +152,9 @@ An **empty** value counts as unset (`MYSQL_PASSWORD=` yields the default, not an
 
 ### LND node
 
-`lnd/start-lnd.sh` is the LND container's entrypoint, configured through the service's environment in `docker-compose.yml`: `NETWORK`, `NEUTRINO_CONNECT` (the **only** bitcoin peers the node talks to — they must serve compact block filters; `neutrinoChecker.py` tests candidates), `FEE_URL`, `LNDHOST`, and `LNDDIR` (default `/lnd` — must match the volume target and the `--lnddir` flag in the healthcheck's `lncli` calls).
+`lnd/Dockerfile` builds the LND image: the official `lightninglabs/lnd` image — the LND version is pinned there, and only ever together with `dbreader/app/go.mod` — plus the entrypoint and the healthcheck. `./runUpdateThisStack.sh` rebuilds it with the rest of the stack.
+
+`lnd/start-lnd.sh` is that entrypoint, configured through the service's environment in `docker-compose.yml`: `NETWORK`, `NEUTRINO_CONNECT` (the **only** bitcoin peers the node talks to — they must serve compact block filters; `neutrinoChecker.py` tests candidates), `FEE_URL`, `LNDHOST`, and `LNDDIR` (set to `/lnd` by the image and read by the healthcheck too — it must match the volume target).
 
 </br>
 
@@ -239,7 +241,7 @@ Notes: every table is exported whole (history included); node announcements with
 
 - **Dashboard** — `http://<server-ip>/` links to the tools below.
 - **Database browser** — `http://<server-ip>/dbgate/` (dbgate, connected as root to the MySQL container).
-- **LND health** — the LND container's healthcheck requires `synced_to_chain: true` and at least one peer (checked every 30 minutes after a 15-minute start period); `lnd-dbreader-autoheal` restarts it after 5 consecutive failures.
+- **LND health** — the healthcheck in `lnd/Dockerfile` requires `synced_to_chain: true` and at least one peer (checked every 30 minutes after a 15-minute start period); `lnd-dbreader-autoheal` restarts the container after 5 consecutive failures. Known gap: a peer that is connected but sends no gossip still counts, so the node can stay "healthy" while the graph stops growing — the Zabbix row counts are the place to catch that.
 - **Zabbix** (optional) — enable the `lnd-dbreader-zabbix` service in `docker-compose.yml` and point it at your server. Every 30 minutes it sends the row count of each table in `TABLES_TO_CHECK` as a **trapper item whose key is the table name**, on the host named by `ZABBIX_MONITORING_HOST`. Create those trapper items on the Zabbix side first; a count that stops growing means the sync has stalled.
 
 </br>
@@ -252,6 +254,7 @@ lnd-dbreader/
 ├── runUpdateThisStack.sh       — idempotent bring-up script
 ├── neutrinoChecker.py          — tests candidate NEUTRINO_CONNECT peers for compact filters
 ├── endpoint/Caddyfile          — the ingress: dashboard, /dbgate/, /rawdata/
+├── lnd/Dockerfile              — LND image: official lnd + entrypoint + healthcheck
 ├── lnd/start-lnd.sh            — LND container entrypoint
 ├── mysql/my.cnf                — MySQL settings (InnoDB buffer pool)
 ├── dbreader/

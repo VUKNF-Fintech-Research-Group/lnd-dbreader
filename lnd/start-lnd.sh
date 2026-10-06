@@ -12,8 +12,8 @@
 #  Runs as user 1000 on a read-only root filesystem, so
 #  the data directory cannot be the image's /root/.lnd
 #  (/root is 0700 root and unreachable): compose mounts
-#  _DATA/lnd at /lnd and --lnddir points lnd there. lncli
-#  in the healthcheck needs the same --lnddir=/lnd.
+#  _DATA/lnd at /lnd and --lnddir points lnd there. The
+#  healthcheck in lnd/Dockerfile reads the same LNDDIR.
 #
 #  Environment (compose sets the first four):
 #    NETWORK          — mainnet
@@ -26,11 +26,12 @@
 #    LNDHOST          — extra TLS SAN for the RPC cert
 #    LND_DEBUG        — lnd debuglevel (default debug)
 #    CHAIN            — bitcoin (default bitcoin)
-#    LNDDIR           — the data directory (default /lnd)
+#    LNDDIR           — the data directory (the image sets
+#                       /lnd; default /lnd here too)
 #
-#  Mounted read-only at /start-lnd.sh and set as the
-#  service's entrypoint in docker-compose.yml; anything in
-#  the service's `command:` is appended to the lnd line.
+#  Copied into the image at /start-lnd.sh and set as its
+#  entrypoint by lnd/Dockerfile; anything in the compose
+#  service's `command:` is appended to the lnd line.
 ############################################################
 
 
@@ -148,9 +149,10 @@ HOSTNAME=$(hostname)
 # STEP 2: peers, fee estimator, data directory. The peer
 # and fee :- defaults are lnd upstream's and only apply
 # when compose leaves the variable unset — it sets both.
-# LNDDIR defaults to the /lnd mount; it must match the
-# volume target in compose and the healthcheck's --lnddir
-# =======================================================
+# LNDDIR comes from the image (/lnd, the default here too)
+# and is shared with its healthcheck; it must match the
+# volume target in compose
+# ========================================================
 NEUTRINO_CONNECT=${NEUTRINO_CONNECT:-"faucet.lightning.community,btcd-mainnet.lightning.computer"}
 FEE_URL=${FEE_URL:-"https://nodes.lightning.computer/fees/v1/btc"}
 LNDDIR=${LNDDIR:-"/lnd"}
@@ -171,17 +173,20 @@ done
 # docker stop's SIGTERM reaches it directly. --lnddir is
 # where the wallet, tls.cert, macaroons, logs and the graph
 # live — the only writable place on the read-only root FS.
-# RPC listens on
-# the container hostname AND localhost — the compose
-# healthcheck's lncli uses localhost and is the only RPC
-# client today. tlsextradomain puts LNDHOST into the cert's
-# SANs so a client on the compose network could verify it
-# under that name. "$@" is whatever compose `command:` adds
+# RPC listens on the container hostname AND localhost — the
+# image's healthcheck (lnd/Dockerfile) calls lncli on
+# localhost and is the only RPC client today; upstream's
+# script dropped the localhost listener in 0.21, this one
+# must keep it.
+# tlsextradomain puts LNDHOST into the cert's SANs so a
+# client on the compose network could verify it under that
+# name. No --bitcoin.active: lnd ignores it since 0.18 and
+# upstream's script dropped it too. "$@" is whatever
+# compose `command:` adds
 # =========================================================
 exec lnd \
     "--lnddir=$LNDDIR" \
     --noseedbackup \
-    "--$CHAIN.active" \
     "--$CHAIN.$NETWORK" \
     "--$CHAIN.node=neutrino" \
     "${NEUTRINO_CONNECT_FLAGS[@]}" \

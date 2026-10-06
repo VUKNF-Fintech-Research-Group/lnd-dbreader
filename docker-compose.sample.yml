@@ -30,7 +30,8 @@ services:
   # LND Daemon
   lnd-dbreader-lnd:
     container_name: lnd-dbreader-lnd
-    image: lightninglabs/lnd:v0.19.3-beta
+    image: lnd-dbreader-lnd
+    build: ./lnd
     user: 1000:1000
     read_only: true
     environment:
@@ -42,16 +43,6 @@ services:
       - LNDHOST=lnd-dbreader-lnd
     volumes:
       - ./_DATA/lnd:/lnd
-      - ./lnd/start-lnd.sh:/start-lnd.sh:ro
-    entrypoint: ["/start-lnd.sh"]
-    healthcheck:
-      # Health check ensures LND is both synced to blockchain AND has at least one peer connected
-      # Checks: 1) "synced_to_chain": true in getinfo, 2) count of "pub_key" entries > 0 in listpeers
-      test: ["CMD-SHELL", "lncli --lnddir=/lnd --rpcserver=localhost:10009 getinfo | grep -q '\"synced_to_chain\": true' && [ $(lncli --lnddir=/lnd --rpcserver=localhost:10009 listpeers | grep -c '\"pub_key\"') -gt 0 ]"]
-      interval: 30m
-      timeout: 10s
-      retries: 5
-      start_period: 15m
     logging:
       driver: "json-file"
       options:
